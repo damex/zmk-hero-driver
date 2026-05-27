@@ -1,0 +1,9 @@
+# Copyright 2026 Roman Kuzmitskii (@damex)
+# SPDX-License-Identifier: MIT
+
+name: zmk-hero-driver
+build:
+  cmake: .
+  kconfig: Kconfig
+  settings:
+    dts_root: .
