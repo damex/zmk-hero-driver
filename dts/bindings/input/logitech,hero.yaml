@@ -1,0 +1,50 @@
+# Copyright 2026 Roman Kuzmitskii (@damex)
+# SPDX-License-Identifier: MIT
+
+description: |
+  Logitech HERO mouse optical sensor (reverse-engineered).
+  SPI mode 3, 4 MHz. HERO has no dedicated motion-ready line (MISO doubles as
+  the motion/wake pin), so this driver polls at poll-interval-us.
+
+compatible: "logitech,hero"
+
+include: spi-device.yaml
+
+properties:
+  cpi:
+    type: int
+    default: 1000
+    description: "Resolution in CPI. Range 50-12000, step 50."
+  poll-interval-us:
+    type: int
+    default: 1000
+    description: "Motion poll period in microseconds. 1000 = 1000 Hz."
+  max-frame-rate:
+    type: int
+    default: 1000
+    description: "Sensor frame rate in fps (boot default)."
+  run-to-rest-sec:
+    type: int
+    default: 6
+    description: "Seconds of inactivity before the sensor enters low-power rest mode."
+  swap-xy:
+    type: boolean
+    description: "Swap X and Y axes at report time."
+  invert-x:
+    type: boolean
+    description: "Negate X axis at report time."
+  invert-y:
+    type: boolean
+    description: "Negate Y axis at report time."
+  event-type:
+    type: int
+    required: true
+    description: "input event type to report, e.g. INPUT_EV_REL."
+  x-input-code:
+    type: int
+    required: true
+    description: "input code for the X axis, e.g. INPUT_REL_X."
+  y-input-code:
+    type: int
+    required: true
+    description: "input code for the Y axis, e.g. INPUT_REL_Y."
