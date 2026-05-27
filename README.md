@@ -63,3 +63,17 @@ missing it is a hard CMake error.
 | `hero_set_event_type` | input event type |
 | `hero_set_x_code` | input code for X axis |
 | `hero_set_y_code` | input code for Y axis |
+
+## License
+
+This module is MIT.
+
+Dependencies (each keeps its own license):
+
+| Dependency | License |
+|---|---|
+| ZMK | MIT |
+| Zephyr | Apache-2.0 |
+
+The HERO sensor blob (`sensor.bin`) is Logitech proprietary firmware. Users
+supply their own dump; this repository does not redistribute it.
