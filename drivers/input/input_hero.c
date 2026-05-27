@@ -503,8 +503,8 @@ static int hero_configure(const struct device *dev) {
 
 /* Non-SPI setters: the poll thread reads each value once per iteration. */
 
-/* axis_flags packs three bools — published as one uint32 store so the poll
- * thread can't observe a half-updated set. */
+/* Three bools packed into one uint32 so the poll thread reads the full set
+ * atomically (no half-updated observation). */
 void hero_set_axis(const struct device *dev, bool invert_x, bool invert_y, bool swap_xy) {
     __ASSERT_NO_MSG(dev != NULL);
     struct hero_data *data = dev->data;
