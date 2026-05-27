@@ -1,0 +1,30 @@
+# Copyright 2026 Roman Kuzmitskii (@damex)
+# SPDX-License-Identifier: MIT
+
+menuconfig INPUT_HERO
+    bool "Logitech HERO mouse optical sensor"
+    select SPI
+    depends on INPUT
+    depends on DT_HAS_LOGITECH_HERO_ENABLED
+    help
+      Reverse-engineered driver for the Logitech HERO sensor (G305, G603).
+
+if INPUT_HERO
+
+config INPUT_HERO_INIT_PRIORITY
+    int "HERO initialization priority"
+    default INPUT_INIT_PRIORITY
+
+config INPUT_HERO_THREAD_STACK_SIZE
+    int "HERO poll thread stack size"
+    default 2048
+
+config INPUT_HERO_THREAD_PRIORITY
+    int "HERO poll thread priority"
+    default 5
+
+module = INPUT_HERO
+module-str = INPUT_HERO
+source "${ZEPHYR_BASE}/subsys/logging/Kconfig.template.log_config"
+
+endif # INPUT_HERO
