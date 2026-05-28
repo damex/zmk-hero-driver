@@ -3,8 +3,8 @@
 
 description: |
   Logitech HERO mouse optical sensor (reverse-engineered).
-  SPI mode 3, 4 MHz. HERO has no dedicated motion-ready line (MISO doubles as
-  the motion/wake pin), so this driver polls at the configured rate.
+  SPI mode 3, 4 MHz. HERO exposes no run-mode motion-ready output, so this
+  driver polls at the configured rate.
 
 compatible: "logitech,hero"
 

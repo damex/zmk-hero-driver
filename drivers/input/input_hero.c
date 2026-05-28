@@ -9,8 +9,8 @@
  *   0x05 must be read first to latch.
  * Blob: a proprietary firmware blob MUST be uploaded via regs 0x2A-0x2F at
  *   power-up, or the sensor won't track.
- * No dedicated motion-ready pin (MISO doubles as motion/wake), so this driver
- *   polls at poll-rate-hz rather than using an IRQ.
+ * No motion-ready output in run mode, so this driver polls at poll-rate-hz
+ *   rather than using an IRQ.
  */
 
 #define DT_DRV_COMPAT logitech_hero

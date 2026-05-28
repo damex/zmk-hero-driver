@@ -57,6 +57,12 @@ value 8333 Hz (register 6); higher writes degrade slow-speed tracking.
 
 Upper rate is not exposed; sensor firmware decides.
 
+### Limitations
+
+No motion-ready IRQ. HERO does not drive MISO (or any other pin) to signal
+motion in run mode; MISO sits at idle level, no chip-driven edges. The driver
+polls at `poll-rate-hz`.
+
 ### C API
 
 `<zmk/input/hero.h>` declares runtime setters callable from any thread:
