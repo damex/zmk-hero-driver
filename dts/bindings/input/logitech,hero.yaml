@@ -21,13 +21,10 @@ properties:
     description: |
       Motion poll rate in Hz. Clamped to 10000 (100 us SPI floor); intermediate
       values that don't divide cleanly into microseconds are rounded down.
-  frame-rate-hz:
+  min-frame-rate-hz:
     type: int
-    default: 10000
-    description: |
-      Sensor frame rate in Hz. Clamped to 10000 (chip's 100 us frame-period
-      floor). Register step is 20 us so non-divisor rates round to the nearest
-      reachable value.
+    default: 1000
+    description: "Frame-rate floor when idle. Range ~32-8333 Hz, 20 us step."
   run-to-rest-sec:
     type: int
     default: 6

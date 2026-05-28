@@ -40,7 +40,7 @@ missing it is a hard CMake error.
 | --- | --- | --- |
 | `cpi` | `1000` | Resolution, 50-12000 (step 50). |
 | `poll-rate-hz` | `1000` | Motion poll rate. Clamped to 10000 Hz (100 us SPI floor); rounds down for non-divisor rates. |
-| `frame-rate-hz` | `10000` | Sensor frame rate. Clamped to 10000 Hz; register step is 20 us so non-divisor rates round to nearest reachable value. |
+| `min-frame-rate-hz` | `1000` | Frame-rate floor when idle. Settable ~32-8333 Hz; see below for the auto-scale behavior. |
 | `run-to-rest-sec` | `6` | Inactivity seconds before rest mode. |
 | `event-type` | required | Input event type (e.g. `INPUT_EV_REL`). |
 | `x-input-code` | required | Input code for X. |
@@ -48,6 +48,14 @@ missing it is a hard CMake error.
 | `swap-xy` | off | Swap X/Y at report time. |
 | `invert-x` | off | Negate X at report time. |
 | `invert-y` | off | Negate Y at report time. |
+
+### Frame rate
+
+`min-frame-rate-hz` is the floor. Sensor auto-scales up to ~12000 Hz under
+motion. Higher floor = better tracking at idle, more current draw. Max useful
+value 8333 Hz (register 6); higher writes degrade slow-speed tracking.
+
+Upper rate is not exposed; sensor firmware decides.
 
 ### C API
 
@@ -58,7 +66,7 @@ missing it is a hard CMake error.
 | `hero_set_cpi` | CPI (50-12000, step 50) |
 | `hero_set_axis` | invert-X, invert-Y, swap-X/Y flags |
 | `hero_set_report_rate` | poll rate in Hz (capped to 10 kHz) |
-| `hero_set_frame_rate` | sensor frame rate (fps) |
+| `hero_set_min_frame_rate` | frame-rate floor in Hz (capped to ~8333) |
 | `hero_set_rest_timeout` | inactivity seconds before rest mode |
 | `hero_set_event_type` | input event type |
 | `hero_set_x_code` | input code for X axis |

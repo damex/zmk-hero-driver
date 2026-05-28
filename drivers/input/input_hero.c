@@ -90,7 +90,7 @@ _Static_assert((HERO_SPI_OPERATION & SPI_TRANSFER_LSB) == 0, "HERO requires MSB-
 #define HERO_CPI_MIN               50
 #define HERO_CPI_MAX               12000
 #define HERO_FRAME_PERIOD_STEP_US  20  /* reg 0x20 unit: period = value * 20 us */
-#define HERO_FRAME_PERIOD_MIN      5   /* 100 us floor */
+#define HERO_FRAME_PERIOD_MIN      6   /* 120 us floor; low-rate tracking degrades below */
 #define HERO_REST_MIN_SEC          1   /* value 0 = ~1 s */
 #define HERO_REST_STEP_PER_SEC     2   /* 0.5 s per reg step */
 #define HERO_POLL_INTERVAL_MIN_US  100 /* 10 kHz ceiling: leaves headroom above the SPI floor */
@@ -109,7 +109,7 @@ struct hero_config {
     /* Chip defaults */
     uint32_t cpi;
     uint32_t poll_rate_hz;
-    uint32_t frame_rate_hz;
+    uint32_t min_frame_rate_hz;
     uint32_t run_to_rest_sec;
 
     /* Reporting */
@@ -230,7 +230,7 @@ static int hero_set_cpi_registers(const struct hero_config *config, uint32_t cpi
 }
 
 /* Higher rate = shorter period = smaller register value; clamped to range. */
-static uint8_t hero_frame_rate_to_period(uint32_t hz) {
+static uint8_t hero_min_frame_rate_to_period(uint32_t hz) {
     if (hz == 0) {
         return UINT8_MAX;
     }
@@ -480,7 +480,7 @@ static int hero_finalize_run(const struct hero_config *config) {
         return error;
     }
     return hero_write(config, HERO_REGISTER_MAX_FRAME_PERIOD,
-                      hero_frame_rate_to_period(config->frame_rate_hz));
+                      hero_min_frame_rate_to_period(config->min_frame_rate_hz));
 }
 
 static int hero_enter_run(const struct hero_config *config) {
@@ -559,10 +559,10 @@ void hero_set_y_code(const struct device *dev, uint16_t code) {
 
 /* Always arm the atomic; skip-if-equal would sticky-suppress retries after SPI failure. */
 
-void hero_set_frame_rate(const struct device *dev, uint32_t hz) {
+void hero_set_min_frame_rate(const struct device *dev, uint32_t hz) {
     __ASSERT_NO_MSG(dev != NULL);
     struct hero_data *data = dev->data;
-    data->pending_frame_period = hero_frame_rate_to_period(hz);
+    data->pending_frame_period = hero_min_frame_rate_to_period(hz);
     atomic_set(&data->frame_period_pending, 1);
 }
 
@@ -659,7 +659,7 @@ static int hero_init(const struct device *dev) {
     data->y_input_code = config->y_input_code;
     /* Seed the cache; hero_enter_run does the chip writes. */
     data->pending_cpi = config->cpi;
-    data->pending_frame_period = hero_frame_rate_to_period(config->frame_rate_hz);
+    data->pending_frame_period = hero_min_frame_rate_to_period(config->min_frame_rate_hz);
     data->pending_rest_period = hero_rest_seconds_to_register(config->run_to_rest_sec);
 
     k_thread_create(&data->thread, config->thread_stack, config->thread_stack_size, hero_thread,
@@ -675,7 +675,7 @@ static int hero_init(const struct device *dev) {
         .spi = SPI_DT_SPEC_INST_GET(n, HERO_SPI_OPERATION, 0),                                             \
         .cpi = DT_INST_PROP(n, cpi),                                                                \
         .poll_rate_hz = DT_INST_PROP(n, poll_rate_hz),                                              \
-        .frame_rate_hz = DT_INST_PROP(n, frame_rate_hz),                                            \
+        .min_frame_rate_hz = DT_INST_PROP(n, min_frame_rate_hz),                                            \
         .run_to_rest_sec = DT_INST_PROP(n, run_to_rest_sec),                                        \
         .event_type = DT_INST_PROP(n, event_type),                                                      \
         .x_input_code = DT_INST_PROP(n, x_input_code),                                              \
