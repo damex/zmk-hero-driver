@@ -4,7 +4,7 @@
 description: |
   Logitech HERO mouse optical sensor (reverse-engineered).
   SPI mode 3, 4 MHz. HERO has no dedicated motion-ready line (MISO doubles as
-  the motion/wake pin), so this driver polls at poll-interval-us.
+  the motion/wake pin), so this driver polls at the configured rate.
 
 compatible: "logitech,hero"
 
@@ -15,14 +15,19 @@ properties:
     type: int
     default: 1000
     description: "Resolution in CPI. Range 50-12000, step 50."
-  poll-interval-us:
+  poll-rate-hz:
     type: int
     default: 1000
-    description: "Motion poll period in microseconds. 1000 = 1000 Hz."
-  max-frame-rate:
+    description: |
+      Motion poll rate in Hz. Clamped to 10000 (100 us SPI floor); intermediate
+      values that don't divide cleanly into microseconds are rounded down.
+  frame-rate-hz:
     type: int
-    default: 1000
-    description: "Sensor frame rate in fps (boot default)."
+    default: 10000
+    description: |
+      Sensor frame rate in Hz. Clamped to 10000 (chip's 100 us frame-period
+      floor). Register step is 20 us so non-divisor rates round to the nearest
+      reachable value.
   run-to-rest-sec:
     type: int
     default: 6

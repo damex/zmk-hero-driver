@@ -39,8 +39,8 @@ missing it is a hard CMake error.
 | property | default | description |
 | --- | --- | --- |
 | `cpi` | `1000` | Resolution, 50-12000 (step 50). |
-| `poll-interval-us` | `1000` | Motion poll period in microseconds (`1000` = 1000 Hz). |
-| `max-frame-rate` | `1000` | Sensor frame rate in fps. |
+| `poll-rate-hz` | `1000` | Motion poll rate. Clamped to 10000 Hz (100 us SPI floor); rounds down for non-divisor rates. |
+| `frame-rate-hz` | `10000` | Sensor frame rate. Clamped to 10000 Hz; register step is 20 us so non-divisor rates round to nearest reachable value. |
 | `run-to-rest-sec` | `6` | Inactivity seconds before rest mode. |
 | `event-type` | required | Input event type (e.g. `INPUT_EV_REL`). |
 | `x-input-code` | required | Input code for X. |

@@ -10,7 +10,7 @@
  * Blob: a proprietary firmware blob MUST be uploaded via regs 0x2A-0x2F at
  *   power-up, or the sensor won't track.
  * No dedicated motion-ready pin (MISO doubles as motion/wake), so this driver
- *   polls at poll-interval-us rather than using an IRQ.
+ *   polls at poll-rate-hz rather than using an IRQ.
  */
 
 #define DT_DRV_COMPAT logitech_hero
@@ -108,8 +108,8 @@ struct hero_config {
 
     /* Chip defaults */
     uint32_t cpi;
-    uint32_t poll_interval_us;
-    uint32_t max_frame_rate;
+    uint32_t poll_rate_hz;
+    uint32_t frame_rate_hz;
     uint32_t run_to_rest_sec;
 
     /* Reporting */
@@ -229,13 +229,21 @@ static int hero_set_cpi_registers(const struct hero_config *config, uint32_t cpi
     return hero_write(config, HERO_REGISTER_DPI_Y, value);
 }
 
-/* Higher fps = shorter period = smaller register value; clamped to the range. */
-static uint8_t hero_fps_to_period(uint32_t fps) {
-    if (fps == 0) {
+/* Higher rate = shorter period = smaller register value; clamped to range. */
+static uint8_t hero_frame_rate_to_period(uint32_t hz) {
+    if (hz == 0) {
         return UINT8_MAX;
     }
-    const uint32_t value = USEC_PER_SEC / (HERO_FRAME_PERIOD_STEP_US * fps);
+    const uint32_t value = USEC_PER_SEC / (HERO_FRAME_PERIOD_STEP_US * hz);
     return (uint8_t)CLAMP(value, HERO_FRAME_PERIOD_MIN, UINT8_MAX);
+}
+
+/* Convert poll rate Hz to interval microseconds; clamp to the SPI floor. */
+static uint32_t hero_poll_rate_to_interval_us(uint32_t hz) {
+    if (hz == 0) {
+        return UINT32_MAX;
+    }
+    return MAX(USEC_PER_SEC / hz, (uint32_t)HERO_POLL_INTERVAL_MIN_US);
 }
 
 /* Sensor enters low-power rest after this many seconds of inactivity; reg step is 0.5 s. */
@@ -472,7 +480,7 @@ static int hero_finalize_run(const struct hero_config *config) {
         return error;
     }
     return hero_write(config, HERO_REGISTER_MAX_FRAME_PERIOD,
-                      hero_fps_to_period(config->max_frame_rate));
+                      hero_frame_rate_to_period(config->frame_rate_hz));
 }
 
 static int hero_enter_run(const struct hero_config *config) {
@@ -528,7 +536,7 @@ void hero_set_report_rate(const struct device *dev, uint32_t hz) {
         LOG_WRN("report rate 0 ignored");
         return;
     }
-    data->poll_interval_us = MAX(USEC_PER_SEC / hz, (uint32_t)HERO_POLL_INTERVAL_MIN_US);
+    data->poll_interval_us = hero_poll_rate_to_interval_us(hz);
 }
 
 void hero_set_event_type(const struct device *dev, uint8_t event_type) {
@@ -551,10 +559,10 @@ void hero_set_y_code(const struct device *dev, uint16_t code) {
 
 /* Always arm the atomic; skip-if-equal would sticky-suppress retries after SPI failure. */
 
-void hero_set_frame_rate(const struct device *dev, uint32_t fps) {
+void hero_set_frame_rate(const struct device *dev, uint32_t hz) {
     __ASSERT_NO_MSG(dev != NULL);
     struct hero_data *data = dev->data;
-    data->pending_frame_period = hero_fps_to_period(fps);
+    data->pending_frame_period = hero_frame_rate_to_period(hz);
     atomic_set(&data->frame_period_pending, 1);
 }
 
@@ -645,13 +653,13 @@ static int hero_init(const struct device *dev) {
     }
 
     hero_set_axis(dev, config->invert_x, config->invert_y, config->swap_xy);
-    data->poll_interval_us = MAX(config->poll_interval_us, (uint32_t)HERO_POLL_INTERVAL_MIN_US);
+    data->poll_interval_us = hero_poll_rate_to_interval_us(config->poll_rate_hz);
     data->event_type = config->event_type;
     data->x_input_code = config->x_input_code;
     data->y_input_code = config->y_input_code;
     /* Seed the cache; hero_enter_run does the chip writes. */
     data->pending_cpi = config->cpi;
-    data->pending_frame_period = hero_fps_to_period(config->max_frame_rate);
+    data->pending_frame_period = hero_frame_rate_to_period(config->frame_rate_hz);
     data->pending_rest_period = hero_rest_seconds_to_register(config->run_to_rest_sec);
 
     k_thread_create(&data->thread, config->thread_stack, config->thread_stack_size, hero_thread,
@@ -666,8 +674,8 @@ static int hero_init(const struct device *dev) {
     static const struct hero_config hero_config_##n = {                                             \
         .spi = SPI_DT_SPEC_INST_GET(n, HERO_SPI_OPERATION, 0),                                             \
         .cpi = DT_INST_PROP(n, cpi),                                                                \
-        .poll_interval_us = DT_INST_PROP(n, poll_interval_us),                                      \
-        .max_frame_rate = DT_INST_PROP(n, max_frame_rate),                                          \
+        .poll_rate_hz = DT_INST_PROP(n, poll_rate_hz),                                              \
+        .frame_rate_hz = DT_INST_PROP(n, frame_rate_hz),                                            \
         .run_to_rest_sec = DT_INST_PROP(n, run_to_rest_sec),                                        \
         .event_type = DT_INST_PROP(n, event_type),                                                      \
         .x_input_code = DT_INST_PROP(n, x_input_code),                                              \
