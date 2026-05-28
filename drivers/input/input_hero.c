@@ -161,21 +161,22 @@ static int hero_xfer(const struct hero_config *config, const uint8_t *tx, uint8_
 
 /* Write under a caller-held CS (SPI_HOLD_ON_CS) for atomic multi-write blocks.
  * Use hero_write for normal single-write transactions. */
-static int hero_write_held(const struct hero_config *config, const struct spi_config *cfg,
-                           uint8_t reg, uint8_t value) {
-    __ASSERT(reg < HERO_READ_BIT, "write reg %#x must have bit 7 clear", reg);
-    const uint8_t tx[2] = {reg & HERO_WRITE_MASK, value};
+static int hero_write_held(const struct hero_config *config, const struct spi_config *spi_config,
+                           uint8_t register_address, uint8_t value) {
+    __ASSERT(register_address < HERO_READ_BIT, "write register %#x must have bit 7 clear",
+             register_address);
+    const uint8_t tx[2] = {register_address & HERO_WRITE_MASK, value};
     const struct spi_buf tx_buf = {.buf = (uint8_t *)tx, .len = sizeof(tx)};
     const struct spi_buf_set tx_set = {.buffers = &tx_buf, .count = 1};
-    return spi_transceive(config->spi.bus, cfg, &tx_set, NULL);
+    return spi_transceive(config->spi.bus, spi_config, &tx_set, NULL);
 }
 
-static int hero_write(const struct hero_config *config, uint8_t reg, uint8_t value) {
-    return hero_write_held(config, &config->spi.config, reg, value);
+static int hero_write(const struct hero_config *config, uint8_t register_address, uint8_t value) {
+    return hero_write_held(config, &config->spi.config, register_address, value);
 }
 
-static int hero_read(const struct hero_config *config, uint8_t reg, uint8_t *value) {
-    const uint8_t tx[2] = {reg | HERO_READ_BIT, HERO_DUMMY_BYTE};
+static int hero_read(const struct hero_config *config, uint8_t register_address, uint8_t *value) {
+    const uint8_t tx[2] = {register_address | HERO_READ_BIT, HERO_DUMMY_BYTE};
     uint8_t rx[2] = {0};
     int error = hero_xfer(config, tx, rx, sizeof(tx));
     if (error < 0) {
@@ -186,12 +187,12 @@ static int hero_read(const struct hero_config *config, uint8_t reg, uint8_t *val
 }
 
 /* Value discarded; the read is needed to advance the chip's state machine. */
-static int hero_read_discard(const struct hero_config *config, uint8_t reg) {
+static int hero_read_discard(const struct hero_config *config, uint8_t register_address) {
     uint8_t scratch;
-    return hero_read(config, reg, &scratch);
+    return hero_read(config, register_address, &scratch);
 }
 
-static int hero_read_motion(const struct hero_config *config, int16_t *dx, int16_t *dy) {
+static int hero_read_motion(const struct hero_config *config, int16_t *delta_x, int16_t *delta_y) {
     const uint8_t tx[HERO_MOTION_TRANSFER_LENGTH] = {
         HERO_REGISTER_MOTION_DY_HIGH | HERO_READ_BIT,
         HERO_REGISTER_MOTION_DY_LOW | HERO_READ_BIT,
@@ -204,16 +205,16 @@ static int hero_read_motion(const struct hero_config *config, int16_t *dx, int16
     if (error < 0) {
         return error;
     }
-    *dy = (int16_t)sys_get_be16(&rx[HERO_MOTION_DY_OFFSET]);
-    *dx = (int16_t)sys_get_be16(&rx[HERO_MOTION_DX_OFFSET]);
+    *delta_y = (int16_t)sys_get_be16(&rx[HERO_MOTION_DY_OFFSET]);
+    *delta_x = (int16_t)sys_get_be16(&rx[HERO_MOTION_DX_OFFSET]);
     return 0;
 }
 
 /* Sample discarded; the read is needed to advance the chip's state machine. */
 static int hero_read_motion_discard(const struct hero_config *config) {
-    int16_t dx;
-    int16_t dy;
-    return hero_read_motion(config, &dx, &dy);
+    int16_t delta_x;
+    int16_t delta_y;
+    return hero_read_motion(config, &delta_x, &delta_y);
 }
 
 static int hero_set_cpi_registers(const struct hero_config *config, uint32_t cpi) {
@@ -265,15 +266,16 @@ static int hero_set_mode(const struct hero_config *config, uint8_t mode) {
 }
 
 struct hero_register_value {
-    uint8_t reg;
+    uint8_t register_address;
     uint8_t value;
 };
 
 /* Write a table of register/value pairs, one CS per write. */
 static int hero_write_registers(const struct hero_config *config,
-                                const struct hero_register_value *regs, size_t count) {
-    for (size_t i = 0; i < count; i++) {
-        int error = hero_write(config, regs[i].reg, regs[i].value);
+                                const struct hero_register_value *registers, size_t count) {
+    for (size_t entry = 0; entry < count; entry++) {
+        int error = hero_write(config, registers[entry].register_address,
+                               registers[entry].value);
         if (error < 0) {
             return error;
         }
@@ -296,14 +298,14 @@ static int hero_blob_write_chunk(const struct hero_config *config,
              (unsigned)HERO_BLOB_CHUNK_BYTES);
     __ASSERT(bytes % 2 == 0, "blob chunk must be 2-byte aligned, got %u", (unsigned)bytes);
     uint8_t buffer[HERO_BLOB_CHUNK_BYTES * 2];
-    size_t out = 0;
-    for (size_t in = 0; in < bytes; in += 2) {
-        buffer[out++] = HERO_REGISTER_BLOB_DATA_A & HERO_WRITE_MASK;
-        buffer[out++] = blob[in];
-        buffer[out++] = HERO_REGISTER_BLOB_DATA_B & HERO_WRITE_MASK;
-        buffer[out++] = blob[in + 1];
+    size_t buffer_position = 0;
+    for (size_t blob_offset = 0; blob_offset < bytes; blob_offset += 2) {
+        buffer[buffer_position++] = HERO_REGISTER_BLOB_DATA_A & HERO_WRITE_MASK;
+        buffer[buffer_position++] = blob[blob_offset];
+        buffer[buffer_position++] = HERO_REGISTER_BLOB_DATA_B & HERO_WRITE_MASK;
+        buffer[buffer_position++] = blob[blob_offset + 1];
     }
-    const struct spi_buf tx_buf = {.buf = buffer, .len = out};
+    const struct spi_buf tx_buf = {.buf = buffer, .len = buffer_position};
     const struct spi_buf_set tx_set = {.buffers = &tx_buf, .count = 1};
     return spi_transceive(config->spi.bus, held, &tx_set, NULL);
 }
@@ -331,15 +333,16 @@ static int hero_upload_blob(const struct hero_config *config) {
     held.operation |= SPI_HOLD_ON_CS | SPI_LOCK_ON;
 
     int error = 0;
-    for (size_t i = 0; i < ARRAY_SIZE(hero_blob_preload); i++) {
-        error = hero_write_held(config, &held, hero_blob_preload[i].reg, hero_blob_preload[i].value);
+    for (size_t entry = 0; entry < ARRAY_SIZE(hero_blob_preload); entry++) {
+        error = hero_write_held(config, &held, hero_blob_preload[entry].register_address,
+                                hero_blob_preload[entry].value);
         if (error < 0) {
             goto out_release;
         }
     }
-    for (size_t i = 0; i < SENSOR_BLOB_SIZE; i += HERO_BLOB_CHUNK_BYTES) {
-        const size_t chunk = MIN(SENSOR_BLOB_SIZE - i, (size_t)HERO_BLOB_CHUNK_BYTES);
-        error = hero_blob_write_chunk(config, &held, &sensor_blob[i], chunk);
+    for (size_t offset = 0; offset < SENSOR_BLOB_SIZE; offset += HERO_BLOB_CHUNK_BYTES) {
+        const size_t chunk = MIN(SENSOR_BLOB_SIZE - offset, (size_t)HERO_BLOB_CHUNK_BYTES);
+        error = hero_blob_write_chunk(config, &held, &sensor_blob[offset], chunk);
         if (error < 0) {
             goto out_release;
         }
@@ -561,6 +564,10 @@ void hero_set_y_code(const struct device *dev, uint16_t code) {
 
 void hero_set_min_frame_rate(const struct device *dev, uint32_t hz) {
     __ASSERT_NO_MSG(dev != NULL);
+    if (hz == 0) {
+        LOG_WRN("min frame rate 0 ignored");
+        return;
+    }
     struct hero_data *data = dev->data;
     data->pending_frame_period = hero_min_frame_rate_to_period(hz);
     atomic_set(&data->frame_period_pending, 1);
@@ -589,25 +596,25 @@ static void hero_emit_motion(const struct device *dev) {
     const struct hero_config *config = dev->config;
     struct hero_data *data = dev->data;
 
-    int16_t dx = 0;
-    int16_t dy = 0;
-    if (hero_read_motion(config, &dx, &dy) != 0 || (dx == 0 && dy == 0)) {
+    int16_t delta_x = 0;
+    int16_t delta_y = 0;
+    if (hero_read_motion(config, &delta_x, &delta_y) != 0 || (delta_x == 0 && delta_y == 0)) {
         return;
     }
     const uint32_t axis_flags = data->axis_flags;
     if (axis_flags & HERO_AXIS_FLAG_SWAP_XY) {
-        int16_t original_dx = dx;
-        dx = dy;
-        dy = original_dx;
+        int16_t original_delta_x = delta_x;
+        delta_x = delta_y;
+        delta_y = original_delta_x;
     }
     if (axis_flags & HERO_AXIS_FLAG_INVERT_X) {
-        dx = (int16_t)-dx;
+        delta_x = (int16_t)-delta_x;
     }
     if (axis_flags & HERO_AXIS_FLAG_INVERT_Y) {
-        dy = (int16_t)-dy;
+        delta_y = (int16_t)-delta_y;
     }
-    input_report(dev, data->event_type, data->x_input_code, dx, false, K_NO_WAIT);
-    input_report(dev, data->event_type, data->y_input_code, dy, true, K_NO_WAIT);
+    input_report(dev, data->event_type, data->x_input_code, delta_x, false, K_NO_WAIT);
+    input_report(dev, data->event_type, data->y_input_code, delta_y, true, K_NO_WAIT);
 }
 
 /* Own thread: init SPI + logging need far more stack than the shared system
@@ -668,25 +675,26 @@ static int hero_init(const struct device *dev) {
     return 0;
 }
 
-#define HERO_INST(n)                                                                                \
-    K_THREAD_STACK_DEFINE(hero_thread_stack_##n, CONFIG_INPUT_HERO_THREAD_STACK_SIZE);      \
-    static struct hero_data hero_data_##n;                                                          \
-    static const struct hero_config hero_config_##n = {                                             \
-        .spi = SPI_DT_SPEC_INST_GET(n, HERO_SPI_OPERATION, 0),                                             \
-        .cpi = DT_INST_PROP(n, cpi),                                                                \
-        .poll_rate_hz = DT_INST_PROP(n, poll_rate_hz),                                              \
-        .min_frame_rate_hz = DT_INST_PROP(n, min_frame_rate_hz),                                            \
-        .run_to_rest_sec = DT_INST_PROP(n, run_to_rest_sec),                                        \
-        .event_type = DT_INST_PROP(n, event_type),                                                      \
-        .x_input_code = DT_INST_PROP(n, x_input_code),                                              \
-        .y_input_code = DT_INST_PROP(n, y_input_code),                                              \
-        .swap_xy = DT_INST_PROP(n, swap_xy),                                                        \
-        .invert_x = DT_INST_PROP(n, invert_x),                                                      \
-        .invert_y = DT_INST_PROP(n, invert_y),                                                      \
-        .thread_stack = hero_thread_stack_##n,                                                      \
-        .thread_stack_size = K_THREAD_STACK_SIZEOF(hero_thread_stack_##n),                          \
+#define HERO_INST(instance)                                                                         \
+    K_THREAD_STACK_DEFINE(hero_thread_stack_##instance, CONFIG_INPUT_HERO_THREAD_STACK_SIZE);       \
+    static struct hero_data hero_data_##instance;                                                   \
+    static const struct hero_config hero_config_##instance = {                                      \
+        .spi = SPI_DT_SPEC_INST_GET(instance, HERO_SPI_OPERATION, 0),                               \
+        .cpi = DT_INST_PROP(instance, cpi),                                                         \
+        .poll_rate_hz = DT_INST_PROP(instance, poll_rate_hz),                                       \
+        .min_frame_rate_hz = DT_INST_PROP(instance, min_frame_rate_hz),                             \
+        .run_to_rest_sec = DT_INST_PROP(instance, run_to_rest_sec),                                 \
+        .event_type = DT_INST_PROP(instance, event_type),                                           \
+        .x_input_code = DT_INST_PROP(instance, x_input_code),                                       \
+        .y_input_code = DT_INST_PROP(instance, y_input_code),                                       \
+        .swap_xy = DT_INST_PROP(instance, swap_xy),                                                 \
+        .invert_x = DT_INST_PROP(instance, invert_x),                                               \
+        .invert_y = DT_INST_PROP(instance, invert_y),                                               \
+        .thread_stack = hero_thread_stack_##instance,                                               \
+        .thread_stack_size = K_THREAD_STACK_SIZEOF(hero_thread_stack_##instance),                   \
     };                                                                                              \
-    DEVICE_DT_INST_DEFINE(n, hero_init, NULL, &hero_data_##n, &hero_config_##n, POST_KERNEL,        \
+    DEVICE_DT_INST_DEFINE(instance, hero_init, NULL, &hero_data_##instance,                         \
+                          &hero_config_##instance, POST_KERNEL,                                     \
                           CONFIG_INPUT_HERO_INIT_PRIORITY, NULL);
 
 DT_INST_FOREACH_STATUS_OKAY(HERO_INST)
