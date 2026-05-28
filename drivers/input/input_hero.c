@@ -23,6 +23,7 @@
 #include <zephyr/input/input.h>
 #include <zephyr/kernel.h>
 #include <zephyr/logging/log.h>
+#include <zephyr/pm/device.h>
 #include <zephyr/sys/__assert.h>
 #include <zephyr/sys/atomic.h>
 #include <zephyr/sys/byteorder.h>
@@ -51,6 +52,7 @@ _Static_assert((HERO_SPI_OPERATION & SPI_TRANSFER_LSB) == 0, "HERO requires MSB-
 #define HERO_REGISTER_MOTION_DX_HIGH       0x07
 #define HERO_REGISTER_MOTION_DX_LOW        0x08
 #define HERO_REGISTER_POWER_UP             0x0A
+#define HERO_REGISTER_SLEEP_ENABLE         0x0B  /* arms sleep/deepsleep; written before HERO_REGISTER_MODE */
 #define HERO_REGISTER_DPI_X                0x0C
 #define HERO_REGISTER_DPI_Y                0x0D
 #define HERO_REGISTER_MAX_FRAME_PERIOD     0x20  /* period = 20us * value, floor 100us; 0x32 = 1000 fps */
@@ -69,6 +71,10 @@ _Static_assert((HERO_SPI_OPERATION & SPI_TRANSFER_LSB) == 0, "HERO requires MSB-
 #define HERO_MOTION_CLEAR                0x80
 #define HERO_MODE_RUN_TRANSITIONAL       0x40
 #define HERO_MODE_RUN                    0x20
+#define HERO_MODE_DEEPSLEEP              0x28
+#define HERO_SLEEP_ENABLE                0x70
+#define HERO_WAKE_DELAY_FIRST_US         10
+#define HERO_WAKE_DELAY_SECOND_US        20
 #define HERO_BLOB_LOAD_ENABLE            0xCF
 #define HERO_BLOB_LOAD_DONE              0x00
 #define HERO_BLOB_FLUSH                  0x80
@@ -146,6 +152,11 @@ struct hero_data {
 
     /* Axis bitmap: aligned 32-bit store/load is hardware-atomic on ARM. */
     uint32_t axis_flags;
+
+    /* park_requested set/cleared by hero_park/hero_unpark; poll thread waits on run_condvar under park_mutex until cleared. */
+    struct k_mutex park_mutex;
+    struct k_condvar run_condvar;
+    bool park_requested;
 };
 
 /* Read-shaped transfer: one CS assertion, equal-length tx/rx. spi_buf.buf lacks
@@ -591,6 +602,23 @@ void hero_set_cpi(const struct device *dev, uint32_t cpi) {
     atomic_set(&data->cpi_pending, 1);
 }
 
+void hero_park(const struct device *dev) {
+    __ASSERT_NO_MSG(dev != NULL);
+    struct hero_data *data = dev->data;
+    k_mutex_lock(&data->park_mutex, K_FOREVER);
+    data->park_requested = true;
+    k_mutex_unlock(&data->park_mutex);
+}
+
+void hero_unpark(const struct device *dev) {
+    __ASSERT_NO_MSG(dev != NULL);
+    struct hero_data *data = dev->data;
+    k_mutex_lock(&data->park_mutex, K_FOREVER);
+    data->park_requested = false;
+    k_condvar_broadcast(&data->run_condvar);
+    k_mutex_unlock(&data->park_mutex);
+}
+
 /* Read motion, apply axis transforms, report. No-op on read failure or no movement. */
 static void hero_emit_motion(const struct device *dev) {
     const struct hero_config *config = dev->config;
@@ -633,6 +661,33 @@ static void hero_thread(void *device_handle, void *unused_param_1, void *unused_
     LOG_INF("HERO ready, polling every %u us, cpi %u", data->poll_interval_us, data->pending_cpi);
 
     while (1) {
+        k_mutex_lock(&data->park_mutex, K_FOREVER);
+        const bool should_park = data->park_requested;
+        k_mutex_unlock(&data->park_mutex);
+        if (should_park) {
+            if (hero_write(config, HERO_REGISTER_SLEEP_ENABLE, HERO_SLEEP_ENABLE) < 0) {
+                LOG_DBG("sleep-enable write failed");
+            }
+            if (hero_set_mode(config, HERO_MODE_DEEPSLEEP) < 0) {
+                LOG_DBG("park mode write failed");
+            }
+            k_mutex_lock(&data->park_mutex, K_FOREVER);
+            while (data->park_requested) {
+                k_condvar_wait(&data->run_condvar, &data->park_mutex, K_FOREVER);
+            }
+            k_mutex_unlock(&data->park_mutex);
+            /* Chip leaves deepsleep only after a mode-write/motion-read/mode-write triple. */
+            if (hero_set_mode(config, HERO_MODE_RUN) < 0) {
+                LOG_DBG("unpark mode write failed");
+            }
+            k_usleep(HERO_WAKE_DELAY_FIRST_US);
+            (void)hero_read_motion_discard(config);
+            k_usleep(HERO_WAKE_DELAY_SECOND_US);
+            if (hero_set_mode(config, HERO_MODE_RUN) < 0) {
+                LOG_DBG("unpark mode refresh failed");
+            }
+            continue;
+        }
         if (atomic_cas(&data->cpi_pending, 1, 0) &&
             hero_set_cpi_registers(config, data->pending_cpi) < 0) {
             LOG_DBG("cpi write failed");
@@ -659,6 +714,10 @@ static int hero_init(const struct device *dev) {
         return -ENODEV;
     }
 
+    k_mutex_init(&data->park_mutex);
+    k_condvar_init(&data->run_condvar);
+    data->park_requested = false;
+
     hero_set_axis(dev, config->invert_x, config->invert_y, config->swap_xy);
     data->poll_interval_us = hero_poll_rate_to_interval_us(config->poll_rate_hz);
     data->event_type = config->event_type;
@@ -674,6 +733,21 @@ static int hero_init(const struct device *dev) {
                     K_NO_WAIT);
     return 0;
 }
+
+#if defined(CONFIG_PM_DEVICE)
+static int hero_pm_action(const struct device *dev, enum pm_device_action action) {
+    switch (action) {
+    case PM_DEVICE_ACTION_SUSPEND:
+        hero_park(dev);
+        return 0;
+    case PM_DEVICE_ACTION_RESUME:
+        hero_unpark(dev);
+        return 0;
+    default:
+        return -ENOTSUP;
+    }
+}
+#endif
 
 #define HERO_INST(instance)                                                                         \
     K_THREAD_STACK_DEFINE(hero_thread_stack_##instance, CONFIG_INPUT_HERO_THREAD_STACK_SIZE);       \
@@ -693,8 +767,9 @@ static int hero_init(const struct device *dev) {
         .thread_stack = hero_thread_stack_##instance,                                               \
         .thread_stack_size = K_THREAD_STACK_SIZEOF(hero_thread_stack_##instance),                   \
     };                                                                                              \
-    DEVICE_DT_INST_DEFINE(instance, hero_init, NULL, &hero_data_##instance,                         \
-                          &hero_config_##instance, POST_KERNEL,                                     \
+    PM_DEVICE_DT_INST_DEFINE(instance, hero_pm_action);                                             \
+    DEVICE_DT_INST_DEFINE(instance, hero_init, PM_DEVICE_DT_INST_GET(instance),                     \
+                          &hero_data_##instance, &hero_config_##instance, POST_KERNEL,              \
                           CONFIG_INPUT_HERO_INIT_PRIORITY, NULL);
 
 DT_INST_FOREACH_STATUS_OKAY(HERO_INST)

@@ -17,3 +17,5 @@ void hero_set_event_type(const struct device *dev, uint8_t event_type);
 void hero_set_x_code(const struct device *dev, uint16_t code);
 void hero_set_y_code(const struct device *dev, uint16_t code);
 void hero_set_rest_timeout(const struct device *dev, uint32_t seconds);
+void hero_park(const struct device *dev);
+void hero_unpark(const struct device *dev);

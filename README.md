@@ -65,9 +65,9 @@ polls at `poll-rate-hz`.
 
 ### C API
 
-`<zmk/input/hero.h>` declares runtime setters callable from any thread:
+`<zmk/input/hero.h>` declares runtime control functions callable from any thread:
 
-| Setter | Sets |
+| Function | Effect |
 |---|---|
 | `hero_set_cpi` | CPI (50-12000, step 50) |
 | `hero_set_axis` | invert-X, invert-Y, swap-X/Y flags |
@@ -77,6 +77,12 @@ polls at `poll-rate-hz`.
 | `hero_set_event_type` | input event type |
 | `hero_set_x_code` | input code for X axis |
 | `hero_set_y_code` | input code for Y axis |
+| `hero_park` | deepsleep + stop poll thread |
+| `hero_unpark` | wake + resume poll thread |
+
+When `CONFIG_PM_DEVICE=y`, the driver also implements Zephyr device PM:
+`PM_DEVICE_ACTION_SUSPEND` calls `hero_park`, `PM_DEVICE_ACTION_RESUME` calls
+`hero_unpark`. No effect otherwise.
 
 ## License
 
