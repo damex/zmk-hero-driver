@@ -645,6 +645,55 @@ static void hero_emit_motion(const struct device *dev) {
     input_report(dev, data->event_type, data->y_input_code, delta_y, true, K_NO_WAIT);
 }
 
+/* Park: deepsleep the chip, block until unparked, then run the wake triple
+ * (mode-write / motion-read / mode-write) the chip needs to leave deepsleep.
+ * Returns true if it parked, so the caller restarts the loop. */
+static bool hero_service_park(const struct hero_config *config, struct hero_data *data) {
+    k_mutex_lock(&data->park_mutex, K_FOREVER);
+    const bool should_park = data->park_requested;
+    k_mutex_unlock(&data->park_mutex);
+    if (!should_park) {
+        return false;
+    }
+    if (hero_write(config, HERO_REGISTER_SLEEP_ENABLE, HERO_SLEEP_ENABLE) < 0) {
+        LOG_DBG("sleep-enable write failed");
+    }
+    if (hero_set_mode(config, HERO_MODE_DEEPSLEEP) < 0) {
+        LOG_DBG("park mode write failed");
+    }
+    k_mutex_lock(&data->park_mutex, K_FOREVER);
+    while (data->park_requested) {
+        k_condvar_wait(&data->run_condvar, &data->park_mutex, K_FOREVER);
+    }
+    k_mutex_unlock(&data->park_mutex);
+    if (hero_set_mode(config, HERO_MODE_RUN) < 0) {
+        LOG_DBG("unpark mode write failed");
+    }
+    k_usleep(HERO_WAKE_DELAY_FIRST_US);
+    (void)hero_read_motion_discard(config);
+    k_usleep(HERO_WAKE_DELAY_SECOND_US);
+    if (hero_set_mode(config, HERO_MODE_RUN) < 0) {
+        LOG_DBG("unpark mode refresh failed");
+    }
+    return true;
+}
+
+/* Apply the deferred chip-config writes the setters armed. */
+static void hero_apply_pending(const struct hero_config *config, struct hero_data *data) {
+    if (atomic_cas(&data->cpi_pending, 1, 0) &&
+        hero_set_cpi_registers(config, data->pending_cpi) < 0) {
+        LOG_DBG("cpi write failed");
+    }
+    if (atomic_cas(&data->frame_period_pending, 1, 0) &&
+        hero_write(config, HERO_REGISTER_MAX_FRAME_PERIOD, data->pending_frame_period) < 0) {
+        LOG_DBG("frame-period write failed");
+    }
+    if (atomic_cas(&data->rest_period_pending, 1, 0) &&
+        hero_write(config, HERO_REGISTER_RUN_TO_REST_TIMEOUT, data->pending_rest_period) < 0) {
+        LOG_DBG("rest-period write failed");
+    }
+}
+
 /* Own thread: init SPI + logging need far more stack than the shared system
  * workqueue's, and a stuck SPI here must not wedge the rest. */
 static void hero_thread(void *device_handle, void *unused_param_1, void *unused_param_2) {
@@ -661,45 +710,10 @@ static void hero_thread(void *device_handle, void *unused_param_1, void *unused_
     LOG_INF("HERO ready, polling every %u us, cpi %u", data->poll_interval_us, data->pending_cpi);
 
     while (1) {
-        k_mutex_lock(&data->park_mutex, K_FOREVER);
-        const bool should_park = data->park_requested;
-        k_mutex_unlock(&data->park_mutex);
-        if (should_park) {
-            if (hero_write(config, HERO_REGISTER_SLEEP_ENABLE, HERO_SLEEP_ENABLE) < 0) {
-                LOG_DBG("sleep-enable write failed");
-            }
-            if (hero_set_mode(config, HERO_MODE_DEEPSLEEP) < 0) {
-                LOG_DBG("park mode write failed");
-            }
-            k_mutex_lock(&data->park_mutex, K_FOREVER);
-            while (data->park_requested) {
-                k_condvar_wait(&data->run_condvar, &data->park_mutex, K_FOREVER);
-            }
-            k_mutex_unlock(&data->park_mutex);
-            /* Chip leaves deepsleep only after a mode-write/motion-read/mode-write triple. */
-            if (hero_set_mode(config, HERO_MODE_RUN) < 0) {
-                LOG_DBG("unpark mode write failed");
-            }
-            k_usleep(HERO_WAKE_DELAY_FIRST_US);
-            (void)hero_read_motion_discard(config);
-            k_usleep(HERO_WAKE_DELAY_SECOND_US);
-            if (hero_set_mode(config, HERO_MODE_RUN) < 0) {
-                LOG_DBG("unpark mode refresh failed");
-            }
+        if (hero_service_park(config, data)) {
             continue;
         }
-        if (atomic_cas(&data->cpi_pending, 1, 0) &&
-            hero_set_cpi_registers(config, data->pending_cpi) < 0) {
-            LOG_DBG("cpi write failed");
-        }
-        if (atomic_cas(&data->frame_period_pending, 1, 0) &&
-            hero_write(config, HERO_REGISTER_MAX_FRAME_PERIOD, data->pending_frame_period) < 0) {
-            LOG_DBG("frame-period write failed");
-        }
-        if (atomic_cas(&data->rest_period_pending, 1, 0) &&
-            hero_write(config, HERO_REGISTER_RUN_TO_REST_TIMEOUT, data->pending_rest_period) < 0) {
-            LOG_DBG("rest-period write failed");
-        }
+        hero_apply_pending(config, data);
         hero_emit_motion(dev);
         k_sleep(K_USEC(data->poll_interval_us));
     }
