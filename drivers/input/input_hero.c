@@ -52,7 +52,7 @@ BUILD_ASSERT((HERO_SPI_OPERATION & SPI_TRANSFER_LSB) == 0, "HERO requires MSB-fi
 #define HERO_REGISTER_MOTION_DX_HIGH       0x07
 #define HERO_REGISTER_MOTION_DX_LOW        0x08
 #define HERO_REGISTER_POWER_UP             0x0A
-#define HERO_REGISTER_SLEEP_ENABLE         0x0B  /* arms sleep/deepsleep; written before HERO_REGISTER_MODE */
+#define HERO_REGISTER_SLEEP_ENABLE         0x0B  /* arms sleep/deepsleep */
 #define HERO_REGISTER_DPI_X                0x0C
 #define HERO_REGISTER_DPI_Y                0x0D
 #define HERO_REGISTER_MAX_FRAME_PERIOD     0x20  /* period = 20us * value, floor 100us; 0x32 = 1000 fps */
@@ -374,9 +374,9 @@ static const struct hero_register_value hero_performance_init[] = {
     {0x35, 0x0B},
 };
 
-/* Run-mode head: regs 0x0B, 0x0E. Precedes the rest-timeout write. */
+/* Run-mode head. Precedes the rest-timeout write. */
 static const struct hero_register_value hero_run_configuration_head[] = {
-    {0x0B, 0x40},
+    {HERO_REGISTER_SLEEP_ENABLE, 0x40},
     {0x0E, 0x11},
 };
 
