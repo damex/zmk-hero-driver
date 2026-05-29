@@ -53,8 +53,8 @@ BUILD_ASSERT((HERO_SPI_OPERATION & SPI_TRANSFER_LSB) == 0, "HERO requires MSB-fi
 #define HERO_REGISTER_MOTION_DX_LOW        0x08
 #define HERO_REGISTER_POWER_UP             0x0A
 #define HERO_REGISTER_SLEEP_ENABLE         0x0B  /* arms sleep/deepsleep */
-#define HERO_REGISTER_DPI_X                0x0C
-#define HERO_REGISTER_DPI_Y                0x0D
+#define HERO_REGISTER_DPI_X                0x0D
+#define HERO_REGISTER_DPI_Y                0x0C
 #define HERO_REGISTER_MAX_FRAME_PERIOD     0x20  /* period = 20us * value, floor 100us; 0x32 = 1000 fps */
 #define HERO_REGISTER_RUN_TO_REST_TIMEOUT  0x22  /* timeout = (0.5 * value + 1) s */
 #define HERO_REGISTER_BLOB_LOAD            0x2A
@@ -234,11 +234,12 @@ static int hero_set_cpi_registers(const struct hero_config *config, uint32_t cpi
         return -EINVAL;
     }
     const uint8_t value = (uint8_t)((cpi / HERO_CPI_REGISTER_STEP) - 1);
-    int error = hero_write(config, HERO_REGISTER_DPI_X, value);
+    /* 0x0C (Y) before 0x0D (X): preserve the stock register write order. */
+    int error = hero_write(config, HERO_REGISTER_DPI_Y, value);
     if (error < 0) {
         return error;
     }
-    return hero_write(config, HERO_REGISTER_DPI_Y, value);
+    return hero_write(config, HERO_REGISTER_DPI_X, value);
 }
 
 /* Higher rate = shorter period = smaller register value; clamped to range. */
