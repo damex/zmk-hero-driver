@@ -166,10 +166,11 @@ struct hero_data {
     /* Timer-paced poll: counter top-value ISR gives, poll thread takes. */
     struct k_sem poll_sem;
 
-    /* park_requested set/cleared by hero_park/hero_unpark; poll thread waits on run_condvar under park_mutex until cleared. */
+    /* park_requested: lock-free fast-path read in the poll loop (every tick);
+     * the mutex + condvar are taken only to actually park and wait. */
     struct k_mutex park_mutex;
     struct k_condvar run_condvar;
-    bool park_requested;
+    atomic_t park_requested;
 };
 
 /* Read-shaped transfer: one CS assertion, equal-length tx/rx. spi_buf.buf lacks
@@ -728,16 +729,17 @@ void hero_set_cpi(const struct device *dev, uint32_t cpi_x, uint32_t cpi_y) {
 void hero_park(const struct device *dev) {
     __ASSERT_NO_MSG(dev != NULL);
     struct hero_data *data = dev->data;
-    k_mutex_lock(&data->park_mutex, K_FOREVER);
-    data->park_requested = true;
-    k_mutex_unlock(&data->park_mutex);
+    /* Poll thread sees this on its next fast-path read; nothing to wake. */
+    atomic_set(&data->park_requested, 1);
 }
 
 void hero_unpark(const struct device *dev) {
     __ASSERT_NO_MSG(dev != NULL);
     struct hero_data *data = dev->data;
+    /* Clear + broadcast under the mutex so a thread blocked in condvar_wait
+     * can't miss the wakeup. */
     k_mutex_lock(&data->park_mutex, K_FOREVER);
-    data->park_requested = false;
+    atomic_set(&data->park_requested, 0);
     k_condvar_broadcast(&data->run_condvar);
     k_mutex_unlock(&data->park_mutex);
 }
@@ -772,10 +774,7 @@ static void hero_emit_motion(const struct device *dev) {
  * (mode-write / motion-read / mode-write) the chip needs to leave deepsleep.
  * Returns true if it parked, so the caller restarts the loop. */
 static bool hero_service_park(const struct hero_config *config, struct hero_data *data) {
-    k_mutex_lock(&data->park_mutex, K_FOREVER);
-    const bool should_park = data->park_requested;
-    k_mutex_unlock(&data->park_mutex);
-    if (!should_park) {
+    if (!atomic_get(&data->park_requested)) {
         return false;
     }
     if (hero_write(config, HERO_REGISTER_SLEEP_ENABLE, HERO_SLEEP_ENABLE) < 0) {
@@ -789,7 +788,7 @@ static bool hero_service_park(const struct hero_config *config, struct hero_data
         LOG_DBG("poll timer stop failed");
     }
     k_mutex_lock(&data->park_mutex, K_FOREVER);
-    while (data->park_requested) {
+    while (atomic_get(&data->park_requested)) {
         k_condvar_wait(&data->run_condvar, &data->park_mutex, K_FOREVER);
     }
     k_mutex_unlock(&data->park_mutex);
@@ -862,7 +861,7 @@ static int hero_init(const struct device *dev) {
 
     k_mutex_init(&data->park_mutex);
     k_condvar_init(&data->run_condvar);
-    data->park_requested = false;
+    atomic_set(&data->park_requested, 0);
 
     hero_set_axis(dev, config->invert_x, config->invert_y, config->swap_xy);
     data->poll_interval_us = hero_poll_rate_to_interval_us(config->poll_rate_hz);
