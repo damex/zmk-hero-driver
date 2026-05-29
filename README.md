@@ -38,8 +38,11 @@ missing it is a hard CMake error.
 
 | property | default | description |
 | --- | --- | --- |
-| `cpi` | `1000` | Resolution, 50-12000 (step 50). |
+| `cpi` | `1000` | Resolution, 50-12000 (step 50). Applies to both axes unless overridden. |
+| `cpi-x` | `cpi` | Per-axis X resolution override. |
+| `cpi-y` | `cpi` | Per-axis Y resolution override. |
 | `poll-rate-hz` | `1000` | Motion poll rate. Clamped to 10000 Hz (100 us SPI floor); rounds down for non-divisor rates. |
+| `poll-timer` | required | Hardware timer (`nordic,nrf-timer` counter) that paces the poll. |
 | `min-frame-rate-hz` | `1000` | Frame-rate floor when idle. Settable ~32-8333 Hz; see below for the auto-scale behavior. |
 | `run-to-rest-sec` | `6` | Inactivity seconds before rest mode. |
 | `event-type` | required | Input event type (e.g. `INPUT_EV_REL`). |
