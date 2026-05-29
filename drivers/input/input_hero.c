@@ -15,6 +15,7 @@
 
 #define DT_DRV_COMPAT logitech_hero
 
+#include <dt-bindings/zmk/hero_cpi.h>
 #include <zmk/input/hero.h>
 
 #include <zephyr/device.h>
@@ -92,17 +93,21 @@ BUILD_ASSERT((HERO_SPI_OPERATION & SPI_TRANSFER_LSB) == 0, "HERO requires MSB-fi
 #define HERO_MOTION_DX_OFFSET       3  /* RX[3..4] = dx big-endian */
 
 /* Conversions */
-#define HERO_CPI_REGISTER_STEP     50
-#define HERO_CPI_MIN               50
-#define HERO_CPI_MAX               12000
 #define HERO_FRAME_PERIOD_STEP_US  20  /* reg 0x20 unit: period = value * 20 us */
 #define HERO_FRAME_PERIOD_MIN      6   /* 120 us floor; low-rate tracking degrades below */
 #define HERO_REST_MIN_SEC          1   /* value 0 = ~1 s */
 #define HERO_REST_STEP_PER_SEC     2   /* 0.5 s per reg step */
 #define HERO_POLL_INTERVAL_MIN_US  100 /* 10 kHz ceiling: leaves headroom above the SPI floor */
 
-BUILD_ASSERT((HERO_CPI_MAX / HERO_CPI_REGISTER_STEP) - 1 <= UINT8_MAX,
+BUILD_ASSERT((HERO_CPI_MAX / HERO_CPI_STEP) - 1 <= UINT8_MAX,
              "CPI max overflows the DPI register width");
+
+/* Per-axis CPI packed into one word (x low, y high) so the poll thread reads
+ * the pair atomically, same as axis_flags. Each value fits 16 bits. */
+#define HERO_CPI_PACK(cpi_x, cpi_y) ((uint32_t)(cpi_x) | ((uint32_t)(cpi_y) << 16))
+#define HERO_CPI_UNPACK_X(word)     ((word) & 0xFFFF)
+#define HERO_CPI_UNPACK_Y(word)     ((word) >> 16)
+BUILD_ASSERT(HERO_CPI_MAX <= UINT16_MAX, "packed per-axis CPI must fit 16 bits");
 
 /* Driver-internal axis bitmap */
 #define HERO_AXIS_FLAG_INVERT_X BIT(0)
@@ -113,7 +118,8 @@ struct hero_config {
     struct spi_dt_spec spi;
 
     /* Chip defaults */
-    uint32_t cpi;
+    uint32_t cpi_x;
+    uint32_t cpi_y;
     uint32_t poll_rate_hz;
     uint32_t min_frame_rate_hz;
     uint32_t run_to_rest_sec;
@@ -228,18 +234,24 @@ static int hero_read_motion_discard(const struct hero_config *config) {
     return hero_read_motion(config, &delta_x, &delta_y);
 }
 
-static int hero_set_cpi_registers(const struct hero_config *config, uint32_t cpi) {
-    if (cpi < HERO_CPI_MIN || cpi > HERO_CPI_MAX) {
-        LOG_WRN("cpi %u out of range [%u, %u]", cpi, HERO_CPI_MIN, HERO_CPI_MAX);
+static bool hero_cpi_in_range(uint32_t cpi) {
+    return cpi >= HERO_CPI_MIN && cpi <= HERO_CPI_MAX;
+}
+
+static int hero_set_cpi_registers(const struct hero_config *config, uint32_t cpi_x,
+                                  uint32_t cpi_y) {
+    if (!hero_cpi_in_range(cpi_x) || !hero_cpi_in_range(cpi_y)) {
+        LOG_WRN("cpi x=%u y=%u out of range [%u, %u]", cpi_x, cpi_y, HERO_CPI_MIN, HERO_CPI_MAX);
         return -EINVAL;
     }
-    const uint8_t value = (uint8_t)((cpi / HERO_CPI_REGISTER_STEP) - 1);
+    const uint8_t value_y = (uint8_t)((cpi_y / HERO_CPI_STEP) - 1);
+    const uint8_t value_x = (uint8_t)((cpi_x / HERO_CPI_STEP) - 1);
     /* 0x0C (Y) before 0x0D (X): preserve the stock register write order. */
-    int error = hero_write(config, HERO_REGISTER_DPI_Y, value);
+    int error = hero_write(config, HERO_REGISTER_DPI_Y, value_y);
     if (error < 0) {
         return error;
     }
-    return hero_write(config, HERO_REGISTER_DPI_X, value);
+    return hero_write(config, HERO_REGISTER_DPI_X, value_x);
 }
 
 /* Higher rate = shorter period = smaller register value; clamped to range. */
@@ -461,7 +473,7 @@ static int hero_arm_run(const struct hero_config *config) {
     if (error < 0) {
         return error;
     }
-    error = hero_set_cpi_registers(config, config->cpi);
+    error = hero_set_cpi_registers(config, config->cpi_x, config->cpi_y);
     if (error < 0) {
         return error;
     }
@@ -592,14 +604,14 @@ void hero_set_rest_timeout(const struct device *dev, uint32_t seconds) {
     atomic_set(&data->rest_period_pending, 1);
 }
 
-void hero_set_cpi(const struct device *dev, uint32_t cpi) {
+void hero_set_cpi(const struct device *dev, uint32_t cpi_x, uint32_t cpi_y) {
     __ASSERT_NO_MSG(dev != NULL);
-    if (cpi < HERO_CPI_MIN || cpi > HERO_CPI_MAX) {
-        LOG_WRN("cpi %u out of range [%u, %u]", cpi, HERO_CPI_MIN, HERO_CPI_MAX);
+    if (!hero_cpi_in_range(cpi_x) || !hero_cpi_in_range(cpi_y)) {
+        LOG_WRN("cpi x=%u y=%u out of range [%u, %u]", cpi_x, cpi_y, HERO_CPI_MIN, HERO_CPI_MAX);
         return;
     }
     struct hero_data *data = dev->data;
-    data->pending_cpi = cpi;
+    data->pending_cpi = HERO_CPI_PACK(cpi_x, cpi_y);
     atomic_set(&data->cpi_pending, 1);
 }
 
@@ -682,7 +694,8 @@ static bool hero_service_park(const struct hero_config *config, struct hero_data
 /* Apply the deferred chip-config writes the setters armed. */
 static void hero_apply_pending(const struct hero_config *config, struct hero_data *data) {
     if (atomic_cas(&data->cpi_pending, 1, 0) &&
-        hero_set_cpi_registers(config, data->pending_cpi) < 0) {
+        hero_set_cpi_registers(config, HERO_CPI_UNPACK_X(data->pending_cpi),
+                               HERO_CPI_UNPACK_Y(data->pending_cpi)) < 0) {
         LOG_DBG("cpi write failed");
     }
     if (atomic_cas(&data->frame_period_pending, 1, 0) &&
@@ -708,7 +721,8 @@ static void hero_thread(void *device_handle, void *unused_param_1, void *unused_
         LOG_ERR("HERO configure failed");
         return;
     }
-    LOG_INF("HERO ready, polling every %u us, cpi %u", data->poll_interval_us, data->pending_cpi);
+    LOG_INF("HERO ready, polling every %u us, cpi x=%u y=%u", data->poll_interval_us,
+            HERO_CPI_UNPACK_X(data->pending_cpi), HERO_CPI_UNPACK_Y(data->pending_cpi));
 
     while (1) {
         if (hero_service_park(config, data)) {
@@ -739,7 +753,7 @@ static int hero_init(const struct device *dev) {
     data->x_input_code = config->x_input_code;
     data->y_input_code = config->y_input_code;
     /* Seed the cache; hero_enter_run does the chip writes. */
-    data->pending_cpi = config->cpi;
+    data->pending_cpi = HERO_CPI_PACK(config->cpi_x, config->cpi_y);
     data->pending_frame_period = hero_min_frame_rate_to_period(config->min_frame_rate_hz);
     data->pending_rest_period = hero_rest_seconds_to_register(config->run_to_rest_sec);
 
@@ -768,7 +782,8 @@ static int __maybe_unused hero_pm_action(const struct device *dev,
     static struct hero_data hero_data_##instance;                                                   \
     static const struct hero_config hero_config_##instance = {                                      \
         .spi = SPI_DT_SPEC_INST_GET(instance, HERO_SPI_OPERATION, 0),                               \
-        .cpi = DT_INST_PROP(instance, cpi),                                                         \
+        .cpi_x = DT_INST_PROP_OR(instance, cpi_x, DT_INST_PROP(instance, cpi)),                      \
+        .cpi_y = DT_INST_PROP_OR(instance, cpi_y, DT_INST_PROP(instance, cpi)),                      \
         .poll_rate_hz = DT_INST_PROP(instance, poll_rate_hz),                                       \
         .min_frame_rate_hz = DT_INST_PROP(instance, min_frame_rate_hz),                             \
         .run_to_rest_sec = DT_INST_PROP(instance, run_to_rest_sec),                                 \

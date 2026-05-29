@@ -14,7 +14,13 @@ properties:
   cpi:
     type: int
     default: 1000
-    description: "Resolution in CPI. Range 50-12000, step 50."
+    description: "Resolution in CPI applied to both axes unless cpi-x / cpi-y override. Range 50-12000, step 50."
+  cpi-x:
+    type: int
+    description: "Per-axis X resolution. Defaults to cpi. Range 50-12000, step 50."
+  cpi-y:
+    type: int
+    description: "Per-axis Y resolution. Defaults to cpi. Range 50-12000, step 50."
   poll-rate-hz:
     type: int
     default: 1000
