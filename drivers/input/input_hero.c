@@ -40,9 +40,9 @@ LOG_MODULE_REGISTER(input_hero, CONFIG_INPUT_HERO_LOG_LEVEL);
 
 /* Chip needs mode 3 (CPOL=1/CPHA=1) MSB-first; trap any future edit that drops a flag.
  * MSB-first is Zephyr's default (SPI_TRANSFER_MSB == 0), so assert LSB isn't set. */
-_Static_assert((HERO_SPI_OPERATION & SPI_MODE_CPOL) != 0, "HERO requires CPOL=1");
-_Static_assert((HERO_SPI_OPERATION & SPI_MODE_CPHA) != 0, "HERO requires CPHA=1");
-_Static_assert((HERO_SPI_OPERATION & SPI_TRANSFER_LSB) == 0, "HERO requires MSB-first");
+BUILD_ASSERT((HERO_SPI_OPERATION & SPI_MODE_CPOL) != 0, "HERO requires CPOL=1");
+BUILD_ASSERT((HERO_SPI_OPERATION & SPI_MODE_CPHA) != 0, "HERO requires CPHA=1");
+BUILD_ASSERT((HERO_SPI_OPERATION & SPI_TRANSFER_LSB) == 0, "HERO requires MSB-first");
 
 /* Register addresses (sorted by address) */
 #define HERO_REGISTER_MOTION               0x02
@@ -101,8 +101,8 @@ _Static_assert((HERO_SPI_OPERATION & SPI_TRANSFER_LSB) == 0, "HERO requires MSB-
 #define HERO_REST_STEP_PER_SEC     2   /* 0.5 s per reg step */
 #define HERO_POLL_INTERVAL_MIN_US  100 /* 10 kHz ceiling: leaves headroom above the SPI floor */
 
-_Static_assert((HERO_CPI_MAX / HERO_CPI_REGISTER_STEP) - 1 <= UINT8_MAX,
-               "CPI max overflows the DPI register width");
+BUILD_ASSERT((HERO_CPI_MAX / HERO_CPI_REGISTER_STEP) - 1 <= UINT8_MAX,
+             "CPI max overflows the DPI register width");
 
 /* Driver-internal axis bitmap */
 #define HERO_AXIS_FLAG_INVERT_X BIT(0)
