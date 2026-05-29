@@ -27,6 +27,12 @@ properties:
     description: |
       Motion poll rate in Hz. Clamped to 10000 (100 us SPI floor); intermediate
       values that don't divide cleanly into microseconds are rounded down.
+  poll-timer:
+    type: phandle
+    required: true
+    description: |
+      Hardware timer (nordic,nrf-timer as a counter) that paces the motion poll
+      at exact intervals.
   min-frame-rate-hz:
     type: int
     default: 1000

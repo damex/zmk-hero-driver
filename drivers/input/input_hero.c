@@ -19,6 +19,7 @@
 #include <zmk/input/hero.h>
 
 #include <zephyr/device.h>
+#include <zephyr/drivers/counter.h>
 #include <zephyr/drivers/spi.h>
 #include <zephyr/init.h>
 #include <zephyr/input/input.h>
@@ -137,6 +138,7 @@ struct hero_config {
     bool invert_y;
 
     /* Poll thread */
+    const struct device *poll_timer;
     k_thread_stack_t *thread_stack;
     size_t thread_stack_size;
 };
@@ -160,6 +162,9 @@ struct hero_data {
 
     /* Axis bitmap: aligned 32-bit store/load is hardware-atomic on ARM. */
     uint32_t axis_flags;
+
+    /* Timer-paced poll: counter top-value ISR gives, poll thread takes. */
+    struct k_sem poll_sem;
 
     /* park_requested set/cleared by hero_park/hero_unpark; poll thread waits on run_condvar under park_mutex until cleared. */
     struct k_mutex park_mutex;
@@ -618,6 +623,25 @@ static int hero_configure(const struct device *dev) {
     return 0;
 }
 
+/* Counter top-value ISR: one tick per poll interval. Gives the poll thread its
+ * semaphore; binary, so an overrun just runs the next poll back-to-back. */
+static void hero_poll_timer_expired(const struct device *timer, void *user_data) {
+    ARG_UNUSED(timer);
+    struct hero_data *data = user_data;
+    k_sem_give(&data->poll_sem);
+}
+
+/* Program the poll-timer period from poll_interval_us. */
+static int hero_poll_timer_configure(const struct hero_config *config, struct hero_data *data) {
+    const struct counter_top_cfg top_cfg = {
+        .ticks = counter_us_to_ticks(config->poll_timer, data->poll_interval_us),
+        .callback = hero_poll_timer_expired,
+        .user_data = data,
+        .flags = 0,
+    };
+    return counter_set_top_value(config->poll_timer, &top_cfg);
+}
+
 /* Non-SPI setters: the poll thread reads each value once per iteration. */
 
 /* Three bools packed into one uint32 so the poll thread reads the full set
@@ -640,12 +664,16 @@ void hero_set_axis(const struct device *dev, bool invert_x, bool invert_y, bool 
 
 void hero_set_report_rate(const struct device *dev, uint32_t hz) {
     __ASSERT_NO_MSG(dev != NULL);
-    struct hero_data *data = dev->data;
     if (hz == 0) {
         LOG_WRN("report rate 0 ignored");
         return;
     }
+    const struct hero_config *config = dev->config;
+    struct hero_data *data = dev->data;
     data->poll_interval_us = hero_poll_rate_to_interval_us(hz);
+    if (hero_poll_timer_configure(config, data) < 0) {
+        LOG_WRN("poll timer reconfigure failed");
+    }
 }
 
 void hero_set_event_type(const struct device *dev, uint8_t event_type) {
@@ -756,11 +784,18 @@ static bool hero_service_park(const struct hero_config *config, struct hero_data
     if (hero_set_mode(config, HERO_MODE_DEEPSLEEP) < 0) {
         LOG_DBG("park mode write failed");
     }
+    /* Halt the poll cadence while asleep so the timer doesn't burn power. */
+    if (counter_stop(config->poll_timer) < 0) {
+        LOG_DBG("poll timer stop failed");
+    }
     k_mutex_lock(&data->park_mutex, K_FOREVER);
     while (data->park_requested) {
         k_condvar_wait(&data->run_condvar, &data->park_mutex, K_FOREVER);
     }
     k_mutex_unlock(&data->park_mutex);
+    if (counter_start(config->poll_timer) < 0) {
+        LOG_DBG("poll timer start failed");
+    }
     if (hero_set_mode(config, HERO_MODE_RUN) < 0) {
         LOG_DBG("unpark mode write failed");
     }
@@ -810,9 +845,9 @@ static void hero_thread(void *device_handle, void *unused_param_1, void *unused_
         if (hero_service_park(config, data)) {
             continue;
         }
+        k_sem_take(&data->poll_sem, K_FOREVER);
         hero_apply_pending(config, data);
         hero_emit_motion(dev);
-        k_sleep(K_USEC(data->poll_interval_us));
     }
 }
 
@@ -838,6 +873,22 @@ static int hero_init(const struct device *dev) {
     data->pending_cpi = HERO_CPI_PACK(config->cpi_x, config->cpi_y);
     data->pending_frame_period = hero_min_frame_rate_to_period(config->min_frame_rate_hz);
     data->pending_rest_period = hero_rest_seconds_to_register(config->run_to_rest_sec);
+
+    if (!device_is_ready(config->poll_timer)) {
+        LOG_ERR("poll timer not ready");
+        return -ENODEV;
+    }
+    k_sem_init(&data->poll_sem, 0, 1);
+    int timer_error = hero_poll_timer_configure(config, data);
+    if (timer_error < 0) {
+        LOG_ERR("poll timer config failed (%d)", timer_error);
+        return timer_error;
+    }
+    timer_error = counter_start(config->poll_timer);
+    if (timer_error < 0) {
+        LOG_ERR("poll timer start failed (%d)", timer_error);
+        return timer_error;
+    }
 
     k_thread_create(&data->thread, config->thread_stack, config->thread_stack_size, hero_thread,
                     (void *)dev, NULL, NULL, CONFIG_INPUT_HERO_THREAD_PRIORITY, 0,
@@ -875,6 +926,7 @@ static int __maybe_unused hero_pm_action(const struct device *dev,
         .swap_xy = DT_INST_PROP(instance, swap_xy),                                                 \
         .invert_x = DT_INST_PROP(instance, invert_x),                                               \
         .invert_y = DT_INST_PROP(instance, invert_y),                                               \
+        .poll_timer = DEVICE_DT_GET(DT_INST_PHANDLE(instance, poll_timer)),                          \
         .thread_stack = hero_thread_stack_##instance,                                               \
         .thread_stack_size = K_THREAD_STACK_SIZEOF(hero_thread_stack_##instance),                   \
     };                                                                                              \

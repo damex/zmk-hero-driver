@@ -4,6 +4,7 @@
 menuconfig INPUT_HERO
     bool "Logitech HERO mouse optical sensor"
     select SPI
+    select COUNTER
     depends on INPUT
     depends on DT_HAS_LOGITECH_HERO_ENABLED
     help
