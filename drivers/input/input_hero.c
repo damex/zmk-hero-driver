@@ -79,6 +79,8 @@ BUILD_ASSERT((HERO_SPI_OPERATION & SPI_TRANSFER_LSB) == 0, "HERO requires MSB-fi
 #define HERO_BLOB_LOAD_ENABLE            0xCF
 #define HERO_BLOB_LOAD_DONE              0x00
 #define HERO_BLOB_FLUSH                  0x80
+#define HERO_BLOB_LOADER_WRITE           0x06
+#define HERO_BLOB_LOADER_READ            0x02
 #define HERO_CALIBRATION_CONTROL_ENABLE  0x88
 #define HERO_CALIBRATION_CONTROL_DISABLE 0x00
 #define HERO_CALIBRATION_TRIGGER_FIRE    0x01
@@ -313,6 +315,15 @@ extern const uint8_t sensor_blob_end[];
 #define SENSOR_BLOB_SIZE      ((size_t)(sensor_blob_end - sensor_blob))
 #define HERO_BLOB_CHUNK_BYTES 256
 
+/* Blob verify read framing: per pair, MOSI = [read 0x2E, read 0x2F, dummy].
+ * The two blob bytes return on the MISO of the 0x2F-read and the dummy byte
+ * (1-byte SPI read latency); the read-0x2E MISO is a loader status byte. */
+#define HERO_BLOB_VERIFY_GROUP_BYTES 3
+#define HERO_BLOB_VERIFY_EVEN_INDEX  1   /* group MISO offset: even blob byte */
+#define HERO_BLOB_VERIFY_ODD_INDEX   2   /* group MISO offset: odd blob byte */
+#define HERO_BLOB_VERIFY_CHUNK_PAIRS 64  /* bounds the stack buffers */
+#define HERO_BLOB_VERIFY_CHUNK_BYTES (HERO_BLOB_VERIFY_CHUNK_PAIRS * 2)
+
 /* Interleave [0x2E, blob[0], 0x2F, blob[1], ...] and send as one transceive. */
 static int hero_blob_write_chunk(const struct hero_config *config,
                                  const struct spi_config *held, const uint8_t *blob,
@@ -334,13 +345,24 @@ static int hero_blob_write_chunk(const struct hero_config *config,
     return spi_transceive(config->spi.bus, held, &tx_set, NULL);
 }
 
-/* Loader pre-config regs 0x2A-0x2D: arm the loader before the data stream. */
-static const struct hero_register_value hero_blob_preload[] = {
-    {HERO_REGISTER_BLOB_LOAD, HERO_BLOB_LOAD_ENABLE},
-    {0x2B, 0x06},
-    {0x2C, 0x08},
-    {0x2D, 0x00},
-};
+/* Arm loader regs 0x2A-0x2D for a blob stream; mode selects the write (upload)
+ * or read-back stream. */
+static int hero_blob_loader_arm(const struct hero_config *config, const struct spi_config *held,
+                                uint8_t mode) {
+    int error = hero_write_held(config, held, HERO_REGISTER_BLOB_LOAD, HERO_BLOB_LOAD_ENABLE);
+    if (error < 0) {
+        return error;
+    }
+    error = hero_write_held(config, held, 0x2B, mode);
+    if (error < 0) {
+        return error;
+    }
+    error = hero_write_held(config, held, 0x2C, 0x08);
+    if (error < 0) {
+        return error;
+    }
+    return hero_write_held(config, held, 0x2D, 0x00);
+}
 
 /* Single 0x80 byte under the held CS terminates the blob-load stream. */
 static int hero_blob_send_flush(const struct hero_config *config, const struct spi_config *held) {
@@ -356,13 +378,9 @@ static int hero_upload_blob(const struct hero_config *config) {
     struct spi_config held = config->spi.config;
     held.operation |= SPI_HOLD_ON_CS | SPI_LOCK_ON;
 
-    int error = 0;
-    for (size_t entry = 0; entry < ARRAY_SIZE(hero_blob_preload); entry++) {
-        error = hero_write_held(config, &held, hero_blob_preload[entry].register_address,
-                                hero_blob_preload[entry].value);
-        if (error < 0) {
-            goto out_release;
-        }
+    int error = hero_blob_loader_arm(config, &held, HERO_BLOB_LOADER_WRITE);
+    if (error < 0) {
+        goto out_release;
     }
     for (size_t offset = 0; offset < SENSOR_BLOB_SIZE; offset += HERO_BLOB_CHUNK_BYTES) {
         const size_t chunk = MIN(SENSOR_BLOB_SIZE - offset, (size_t)HERO_BLOB_CHUNK_BYTES);
@@ -372,6 +390,65 @@ static int hero_upload_blob(const struct hero_config *config) {
         }
     }
     error = hero_blob_send_flush(config, &held);
+out_release:
+    spi_release(config->spi.bus, &held);
+    return error;
+}
+
+/* Read back `pairs` blob byte-pairs under the held CS and compare to `blob`.
+ * Returns -EIO on the first mismatch. */
+static int hero_blob_verify_chunk(const struct hero_config *config, const struct spi_config *held,
+                                  const uint8_t *blob, size_t pairs) {
+    __ASSERT(pairs > 0 && pairs <= HERO_BLOB_VERIFY_CHUNK_PAIRS,
+             "blob verify pairs out of bounds: %u (max %u)", (unsigned)pairs,
+             (unsigned)HERO_BLOB_VERIFY_CHUNK_PAIRS);
+    uint8_t tx[HERO_BLOB_VERIFY_CHUNK_PAIRS * HERO_BLOB_VERIFY_GROUP_BYTES];
+    uint8_t rx[HERO_BLOB_VERIFY_CHUNK_PAIRS * HERO_BLOB_VERIFY_GROUP_BYTES] = {0};
+    size_t position = 0;
+    for (size_t pair = 0; pair < pairs; pair++) {
+        tx[position++] = HERO_REGISTER_BLOB_DATA_A | HERO_READ_BIT;
+        tx[position++] = HERO_REGISTER_BLOB_DATA_B | HERO_READ_BIT;
+        tx[position++] = HERO_DUMMY_BYTE;
+    }
+    const struct spi_buf tx_buf = {.buf = tx, .len = position};
+    const struct spi_buf rx_buf = {.buf = rx, .len = position};
+    const struct spi_buf_set tx_set = {.buffers = &tx_buf, .count = 1};
+    const struct spi_buf_set rx_set = {.buffers = &rx_buf, .count = 1};
+    int error = spi_transceive(config->spi.bus, held, &tx_set, &rx_set);
+    if (error < 0) {
+        return error;
+    }
+    for (size_t pair = 0; pair < pairs; pair++) {
+        const size_t group = pair * HERO_BLOB_VERIFY_GROUP_BYTES;
+        if (rx[group + HERO_BLOB_VERIFY_EVEN_INDEX] != blob[pair * 2] ||
+            rx[group + HERO_BLOB_VERIFY_ODD_INDEX] != blob[pair * 2 + 1]) {
+            return -EIO;
+        }
+    }
+    return 0;
+}
+
+/* Read the uploaded blob back and compare to the source. Catches a corrupted
+ * upload, which otherwise leaves the sensor silently not tracking. Needs the
+ * whole read stream under ONE held CS, same as the upload. */
+static int hero_verify_blob(const struct hero_config *config) {
+    struct spi_config held = config->spi.config;
+    held.operation |= SPI_HOLD_ON_CS | SPI_LOCK_ON;
+
+    int error = hero_blob_loader_arm(config, &held, HERO_BLOB_LOADER_READ);
+    if (error < 0) {
+        goto out_release;
+    }
+    for (size_t offset = 0; offset < SENSOR_BLOB_SIZE; offset += HERO_BLOB_VERIFY_CHUNK_BYTES) {
+        const size_t bytes = MIN(SENSOR_BLOB_SIZE - offset, (size_t)HERO_BLOB_VERIFY_CHUNK_BYTES);
+        error = hero_blob_verify_chunk(config, &held, &sensor_blob[offset], bytes / 2);
+        if (error < 0) {
+            if (error == -EIO) {
+                LOG_ERR("blob verify mismatch near offset %u", (unsigned)offset);
+            }
+            goto out_release;
+        }
+    }
 out_release:
     spi_release(config->spi.bus, &held);
     return error;
@@ -443,6 +520,11 @@ static int hero_power_on(const struct hero_config *config) {
     /* Blob upload is mandatory for tracking. */
     error = hero_upload_blob(config);
     if (error < 0) {
+        return error;
+    }
+    error = hero_verify_blob(config);
+    if (error < 0) {
+        LOG_ERR("HERO blob verify failed (%d)", error);
         return error;
     }
     error = hero_write(config, HERO_REGISTER_BLOB_LOAD, HERO_BLOB_LOAD_DONE);
