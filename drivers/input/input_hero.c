@@ -734,8 +734,8 @@ static int hero_init(const struct device *dev) {
     return 0;
 }
 
-#if defined(CONFIG_PM_DEVICE)
-static int hero_pm_action(const struct device *dev, enum pm_device_action action) {
+static int __maybe_unused hero_pm_action(const struct device *dev,
+                                         enum pm_device_action action) {
     switch (action) {
     case PM_DEVICE_ACTION_SUSPEND:
         hero_park(dev);
@@ -747,7 +747,6 @@ static int hero_pm_action(const struct device *dev, enum pm_device_action action
         return -ENOTSUP;
     }
 }
-#endif
 
 #define HERO_INST(instance)                                                                         \
     K_THREAD_STACK_DEFINE(hero_thread_stack_##instance, CONFIG_INPUT_HERO_THREAD_STACK_SIZE);       \
