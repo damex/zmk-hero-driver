@@ -933,6 +933,8 @@ static int __maybe_unused hero_pm_action(const struct device *dev,
 }
 
 #define HERO_INST(instance)                                                                         \
+    BUILD_ASSERT(DT_INST_PROP(instance, poll_rate_hz) > 0,                                          \
+                 "logitech,hero poll-rate-hz must be > 0");                                          \
     K_THREAD_STACK_DEFINE(hero_thread_stack_##instance, CONFIG_INPUT_HERO_THREAD_STACK_SIZE);       \
     static struct hero_data hero_data_##instance;                                                   \
     static const struct hero_config hero_config_##instance = {                                      \
