@@ -729,8 +729,10 @@ void hero_set_cpi(const struct device *dev, uint32_t cpi_x, uint32_t cpi_y) {
 void hero_park(const struct device *dev) {
     __ASSERT_NO_MSG(dev != NULL);
     struct hero_data *data = dev->data;
-    /* Poll thread sees this on its next fast-path read; nothing to wake. */
+    /* Set flag, then wake poll thread off its sem so it parks now, not at next
+     * timer tick. Order matters: wake must see flag. */
     atomic_set(&data->park_requested, 1);
+    k_sem_give(&data->poll_sem);
 }
 
 void hero_unpark(const struct device *dev) {
