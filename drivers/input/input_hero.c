@@ -32,6 +32,7 @@
 #include <zephyr/sys/util.h>
 
 #include "hero_axis.h"
+#include "hero_cpi.h"
 
 LOG_MODULE_REGISTER(input_hero, CONFIG_INPUT_HERO_LOG_LEVEL);
 
@@ -103,16 +104,6 @@ BUILD_ASSERT((HERO_SPI_OPERATION & SPI_TRANSFER_LSB) == 0, "HERO requires MSB-fi
 #define HERO_REST_MIN_SEC          1   /* value 0 = ~1 s */
 #define HERO_REST_STEP_PER_SEC     2   /* 0.5 s per reg step */
 #define HERO_POLL_INTERVAL_MIN_US  100 /* 10 kHz ceiling: leaves headroom above the SPI floor */
-
-BUILD_ASSERT((HERO_CPI_MAX / HERO_CPI_STEP) - 1 <= UINT8_MAX,
-             "CPI max overflows the DPI register width");
-
-/* Per-axis CPI packed into one word (x low, y high) so the poll thread reads
- * the pair atomically, same as axis_flags. Each value fits 16 bits. */
-#define HERO_CPI_PACK(cpi_x, cpi_y) ((uint32_t)(cpi_x) | ((uint32_t)(cpi_y) << 16))
-#define HERO_CPI_UNPACK_X(word)     ((word) & 0xFFFF)
-#define HERO_CPI_UNPACK_Y(word)     ((word) >> 16)
-BUILD_ASSERT(HERO_CPI_MAX <= UINT16_MAX, "packed per-axis CPI must fit 16 bits");
 
 struct hero_config {
     struct spi_dt_spec spi;
@@ -241,18 +232,14 @@ static int hero_read_motion_discard(const struct hero_config *config) {
     return hero_read_motion(config, &delta_x, &delta_y);
 }
 
-static bool hero_cpi_in_range(uint32_t cpi) {
-    return cpi >= HERO_CPI_MIN && cpi <= HERO_CPI_MAX;
-}
-
 static int hero_set_cpi_registers(const struct hero_config *config, uint32_t cpi_x,
                                   uint32_t cpi_y) {
-    if (!hero_cpi_in_range(cpi_x) || !hero_cpi_in_range(cpi_y)) {
+    if (!hero_cpi_pair_in_range(cpi_x, cpi_y)) {
         LOG_WRN("cpi x=%u y=%u out of range [%u, %u]", cpi_x, cpi_y, HERO_CPI_MIN, HERO_CPI_MAX);
         return -EINVAL;
     }
-    const uint8_t value_y = (uint8_t)((cpi_y / HERO_CPI_STEP) - 1);
-    const uint8_t value_x = (uint8_t)((cpi_x / HERO_CPI_STEP) - 1);
+    const uint8_t value_y = hero_cpi_to_register(cpi_y);
+    const uint8_t value_x = hero_cpi_to_register(cpi_x);
     /* 0x0C (Y) before 0x0D (X): preserve the stock register write order. */
     int error = hero_write(config, HERO_REGISTER_DPI_Y, value_y);
     if (error < 0) {
@@ -713,7 +700,7 @@ void hero_set_rest_timeout(const struct device *dev, uint32_t seconds) {
 
 void hero_set_cpi(const struct device *dev, uint32_t cpi_x, uint32_t cpi_y) {
     __ASSERT_NO_MSG(dev != NULL);
-    if (!hero_cpi_in_range(cpi_x) || !hero_cpi_in_range(cpi_y)) {
+    if (!hero_cpi_pair_in_range(cpi_x, cpi_y)) {
         LOG_WRN("cpi x=%u y=%u out of range [%u, %u]", cpi_x, cpi_y, HERO_CPI_MIN, HERO_CPI_MAX);
         return;
     }
