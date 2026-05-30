@@ -766,8 +766,16 @@ static void hero_emit_motion(const struct device *dev) {
     if (axis_flags & HERO_AXIS_FLAG_INVERT_Y) {
         delta_y = (int16_t)-delta_y;
     }
-    input_report(dev, data->event_type, data->x_input_code, delta_x, false, K_NO_WAIT);
-    input_report(dev, data->event_type, data->y_input_code, delta_y, true, K_NO_WAIT);
+    /* Absent relative axis reads as 0 downstream, so emit only moved ones.
+     * Sync marks last reported event, rides whichever axis comes last. */
+    const bool x_moved = delta_x != 0;
+    const bool y_moved = delta_y != 0;
+    if (x_moved) {
+        input_report(dev, data->event_type, data->x_input_code, delta_x, !y_moved, K_NO_WAIT);
+    }
+    if (y_moved) {
+        input_report(dev, data->event_type, data->y_input_code, delta_y, true, K_NO_WAIT);
+    }
 }
 
 /* Park: deepsleep the chip, block until unparked, then run the wake triple
