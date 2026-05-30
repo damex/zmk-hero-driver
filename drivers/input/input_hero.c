@@ -863,6 +863,9 @@ static void hero_thread(void *device_handle, void *unused_param_1, void *unused_
     LOG_INF("HERO ready, polling every %u us, cpi x=%u y=%u", data->poll_interval_us,
             HERO_CPI_UNPACK_X(data->pending_cpi), HERO_CPI_UNPACK_Y(data->pending_cpi));
 
+    /* Drop ticks banked during configure so first poll waits for fresh tick. */
+    k_sem_reset(&data->poll_sem);
+
     while (1) {
         if (hero_service_park(config, data)) {
             continue;
