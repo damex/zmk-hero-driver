@@ -146,13 +146,15 @@ struct hero_config {
 struct hero_data {
     struct k_thread thread;
 
-    /* Deferred SPI writes: setter stores value + arms atomic; poll thread CAS-claims and writes. */
+    /* Deferred config: setter stores value + arms atomic; poll thread CAS-claims and applies. */
     uint32_t pending_cpi;
     atomic_t cpi_pending;
     uint8_t pending_frame_period;
     atomic_t frame_period_pending;
     uint8_t pending_rest_period;
     atomic_t rest_period_pending;
+    uint32_t pending_poll_interval_us;
+    atomic_t poll_interval_pending;
 
     /* Poll-thread parameters (single-word, lock-free) */
     uint32_t poll_interval_us;
@@ -669,12 +671,9 @@ void hero_set_report_rate(const struct device *dev, uint32_t hz) {
         LOG_WRN("report rate 0 ignored");
         return;
     }
-    const struct hero_config *config = dev->config;
     struct hero_data *data = dev->data;
-    data->poll_interval_us = hero_poll_rate_to_interval_us(hz);
-    if (hero_poll_timer_configure(config, data) < 0) {
-        LOG_WRN("poll timer reconfigure failed");
-    }
+    data->pending_poll_interval_us = hero_poll_rate_to_interval_us(hz);
+    atomic_set(&data->poll_interval_pending, 1);
 }
 
 void hero_set_event_type(const struct device *dev, uint8_t event_type) {
@@ -831,6 +830,12 @@ static void hero_apply_pending(const struct hero_config *config, struct hero_dat
     if (atomic_cas(&data->rest_period_pending, 1, 0) &&
         hero_write(config, HERO_REGISTER_RUN_TO_REST_TIMEOUT, data->pending_rest_period) < 0) {
         LOG_DBG("rest-period write failed");
+    }
+    if (atomic_cas(&data->poll_interval_pending, 1, 0)) {
+        data->poll_interval_us = data->pending_poll_interval_us;
+        if (hero_poll_timer_configure(config, data) < 0) {
+            LOG_DBG("poll timer reconfigure failed");
+        }
     }
 }
 
