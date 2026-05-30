@@ -636,17 +636,7 @@ static int hero_poll_timer_configure(const struct hero_config *config, struct he
 void hero_set_axis(const struct device *dev, bool invert_x, bool invert_y, bool swap_xy) {
     __ASSERT_NO_MSG(dev != NULL);
     struct hero_data *data = dev->data;
-    uint32_t flags = 0;
-    if (invert_x) {
-        flags |= HERO_AXIS_FLAG_INVERT_X;
-    }
-    if (invert_y) {
-        flags |= HERO_AXIS_FLAG_INVERT_Y;
-    }
-    if (swap_xy) {
-        flags |= HERO_AXIS_FLAG_SWAP_XY;
-    }
-    data->axis_flags = flags;
+    data->axis_flags = hero_axis_flags(invert_x, invert_y, swap_xy);
 }
 
 void hero_set_report_rate(const struct device *dev, uint32_t hz) {
