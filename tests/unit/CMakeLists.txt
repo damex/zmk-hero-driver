@@ -20,5 +20,7 @@ target_include_directories(testbinary PRIVATE
 
 target_sources(testbinary PRIVATE
   src/test_axis.c
+  src/test_cpi.c
   ${hero_driver_root}/drivers/input/hero_axis.c
+  ${hero_driver_root}/drivers/input/hero_cpi.c
 )
