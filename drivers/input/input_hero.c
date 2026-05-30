@@ -33,6 +33,7 @@
 
 #include "hero_axis.h"
 #include "hero_cpi.h"
+#include "hero_timing.h"
 
 LOG_MODULE_REGISTER(input_hero, CONFIG_INPUT_HERO_LOG_LEVEL);
 
@@ -97,13 +98,6 @@ BUILD_ASSERT((HERO_SPI_OPERATION & SPI_TRANSFER_LSB) == 0, "HERO requires MSB-fi
 #define HERO_MOTION_TRANSFER_LENGTH 5
 #define HERO_MOTION_DY_OFFSET       1  /* RX[1..2] = dy big-endian */
 #define HERO_MOTION_DX_OFFSET       3  /* RX[3..4] = dx big-endian */
-
-/* Conversions */
-#define HERO_FRAME_PERIOD_STEP_US  20  /* reg 0x20 unit: period = value * 20 us */
-#define HERO_FRAME_PERIOD_MIN      6   /* 120 us floor; low-rate tracking degrades below */
-#define HERO_REST_MIN_SEC          1   /* value 0 = ~1 s */
-#define HERO_REST_STEP_PER_SEC     2   /* 0.5 s per reg step */
-#define HERO_POLL_INTERVAL_MIN_US  100 /* 10 kHz ceiling: leaves headroom above the SPI floor */
 
 struct hero_config {
     struct spi_dt_spec spi;
@@ -246,32 +240,6 @@ static int hero_set_cpi_registers(const struct hero_config *config, uint32_t cpi
         return error;
     }
     return hero_write(config, HERO_REGISTER_DPI_X, value_x);
-}
-
-/* Higher rate = shorter period = smaller register value; clamped to range. */
-static uint8_t hero_min_frame_rate_to_period(uint32_t hz) {
-    if (hz == 0) {
-        return UINT8_MAX;
-    }
-    const uint32_t value = USEC_PER_SEC / (HERO_FRAME_PERIOD_STEP_US * hz);
-    return (uint8_t)CLAMP(value, HERO_FRAME_PERIOD_MIN, UINT8_MAX);
-}
-
-/* Convert poll rate Hz to interval microseconds; clamp to the SPI floor. */
-static uint32_t hero_poll_rate_to_interval_us(uint32_t hz) {
-    if (hz == 0) {
-        return UINT32_MAX;
-    }
-    return MAX(USEC_PER_SEC / hz, (uint32_t)HERO_POLL_INTERVAL_MIN_US);
-}
-
-/* Sensor enters low-power rest after this many seconds of inactivity; reg step is 0.5 s. */
-static uint8_t hero_rest_seconds_to_register(uint32_t seconds) {
-    if (seconds <= HERO_REST_MIN_SEC) {
-        return 0;
-    }
-    return (uint8_t)MIN((seconds - HERO_REST_MIN_SEC) * HERO_REST_STEP_PER_SEC,
-                        (uint32_t)UINT8_MAX);
 }
 
 /* Sensor needs a read before the mode write to latch the state. */
