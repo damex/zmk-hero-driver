@@ -45,7 +45,6 @@ missing it is a hard CMake error.
 | `poll-timer` | required | Hardware timer (`nordic,nrf-timer` counter) that paces the poll. |
 | `min-frame-rate-hz` | `1000` | Frame-rate floor when idle. Settable ~32-8333 Hz; see below for the auto-scale behavior. |
 | `run-to-rest-sec` | `6` | Inactivity seconds before rest mode. |
-| `event-type` | required | Input event type (e.g. `INPUT_EV_REL`). |
 | `x-input-code` | required | Input code for X. |
 | `y-input-code` | required | Input code for Y. |
 | `swap-xy` | off | Swap X/Y at report time. |
@@ -77,7 +76,6 @@ polls at `poll-rate-hz`.
 | `hero_set_report_rate` | poll rate in Hz (capped to 10 kHz) |
 | `hero_set_min_frame_rate` | frame-rate floor in Hz (capped to ~8333) |
 | `hero_set_rest_timeout` | inactivity seconds before rest mode |
-| `hero_set_event_type` | input event type |
 | `hero_set_x_code` | input code for X axis |
 | `hero_set_y_code` | input code for Y axis |
 | `hero_park` | deepsleep + stop poll thread |

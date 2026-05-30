@@ -50,10 +50,6 @@ properties:
   invert-y:
     type: boolean
     description: "Negate Y axis at report time."
-  event-type:
-    type: int
-    required: true
-    description: "input event type to report, e.g. INPUT_EV_REL."
   x-input-code:
     type: int
     required: true

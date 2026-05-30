@@ -112,7 +112,6 @@ struct hero_config {
     /* Reporting */
     uint16_t x_input_code;
     uint16_t y_input_code;
-    uint8_t event_type;
 
     /* Axis transforms */
     bool swap_xy;
@@ -142,7 +141,6 @@ struct hero_data {
     uint32_t poll_interval_us;
     uint16_t x_input_code;
     uint16_t y_input_code;
-    uint8_t event_type;
 
     /* Axis bitmap: aligned 32-bit store/load is hardware-atomic on ARM. */
     uint32_t axis_flags;
@@ -618,12 +616,6 @@ void hero_set_report_rate(const struct device *dev, uint32_t hz) {
     atomic_set(&data->poll_interval_pending, 1);
 }
 
-void hero_set_event_type(const struct device *dev, uint8_t event_type) {
-    __ASSERT_NO_MSG(dev != NULL);
-    struct hero_data *data = dev->data;
-    data->event_type = event_type;
-}
-
 void hero_set_x_code(const struct device *dev, uint16_t code) {
     __ASSERT_NO_MSG(dev != NULL);
     struct hero_data *data = dev->data;
@@ -703,10 +695,10 @@ static void hero_emit_motion(const struct device *dev) {
     const bool x_moved = delta_x != 0;
     const bool y_moved = delta_y != 0;
     if (x_moved) {
-        input_report(dev, data->event_type, data->x_input_code, delta_x, !y_moved, K_NO_WAIT);
+        input_report_rel(dev, data->x_input_code, delta_x, !y_moved, K_NO_WAIT);
     }
     if (y_moved) {
-        input_report(dev, data->event_type, data->y_input_code, delta_y, true, K_NO_WAIT);
+        input_report_rel(dev, data->y_input_code, delta_y, true, K_NO_WAIT);
     }
 }
 
@@ -822,7 +814,6 @@ static int hero_init(const struct device *dev) {
 
     hero_set_axis(dev, config->invert_x, config->invert_y, config->swap_xy);
     data->poll_interval_us = hero_poll_rate_to_interval_us(config->poll_rate_hz);
-    data->event_type = config->event_type;
     data->x_input_code = config->x_input_code;
     data->y_input_code = config->y_input_code;
     /* Seed the cache; hero_enter_run does the chip writes. */
@@ -878,7 +869,6 @@ static int __maybe_unused hero_pm_action(const struct device *dev,
         .poll_rate_hz = DT_INST_PROP(instance, poll_rate_hz),                                       \
         .min_frame_rate_hz = DT_INST_PROP(instance, min_frame_rate_hz),                             \
         .run_to_rest_sec = DT_INST_PROP(instance, run_to_rest_sec),                                 \
-        .event_type = DT_INST_PROP(instance, event_type),                                           \
         .x_input_code = DT_INST_PROP(instance, x_input_code),                                       \
         .y_input_code = DT_INST_PROP(instance, y_input_code),                                       \
         .swap_xy = DT_INST_PROP(instance, swap_xy),                                                 \
