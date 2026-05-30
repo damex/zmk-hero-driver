@@ -819,25 +819,30 @@ static bool hero_service_park(const struct hero_config *config, struct hero_data
     return true;
 }
 
-/* Apply the deferred chip-config writes the setters armed. */
+/* Apply the deferred chip-config writes the setters armed.
+ * Re-arm on failure so transient SPI error retries next poll, not drops. */
 static void hero_apply_pending(const struct hero_config *config, struct hero_data *data) {
     if (atomic_cas(&data->cpi_pending, 1, 0) &&
         hero_set_cpi_registers(config, HERO_CPI_UNPACK_X(data->pending_cpi),
                                HERO_CPI_UNPACK_Y(data->pending_cpi)) < 0) {
         LOG_DBG("cpi write failed");
+        atomic_set(&data->cpi_pending, 1);
     }
     if (atomic_cas(&data->frame_period_pending, 1, 0) &&
         hero_write(config, HERO_REGISTER_MAX_FRAME_PERIOD, data->pending_frame_period) < 0) {
         LOG_DBG("frame-period write failed");
+        atomic_set(&data->frame_period_pending, 1);
     }
     if (atomic_cas(&data->rest_period_pending, 1, 0) &&
         hero_write(config, HERO_REGISTER_RUN_TO_REST_TIMEOUT, data->pending_rest_period) < 0) {
         LOG_DBG("rest-period write failed");
+        atomic_set(&data->rest_period_pending, 1);
     }
     if (atomic_cas(&data->poll_interval_pending, 1, 0)) {
         data->poll_interval_us = data->pending_poll_interval_us;
         if (hero_poll_timer_configure(config, data) < 0) {
             LOG_DBG("poll timer reconfigure failed");
+            atomic_set(&data->poll_interval_pending, 1);
         }
     }
 }
