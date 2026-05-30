@@ -796,6 +796,9 @@ static bool hero_service_park(const struct hero_config *config, struct hero_data
     if (counter_stop(config->poll_timer) < 0) {
         LOG_DBG("poll timer stop failed");
     }
+    /* Drop any tick banked before stop. First poll after wake waits for fresh
+     * tick, not early. */
+    k_sem_reset(&data->poll_sem);
     k_mutex_lock(&data->park_mutex, K_FOREVER);
     while (atomic_get(&data->park_requested)) {
         k_condvar_wait(&data->run_condvar, &data->park_mutex, K_FOREVER);
