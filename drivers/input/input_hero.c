@@ -31,6 +31,8 @@
 #include <zephyr/sys/byteorder.h>
 #include <zephyr/sys/util.h>
 
+#include "hero_axis.h"
+
 LOG_MODULE_REGISTER(input_hero, CONFIG_INPUT_HERO_LOG_LEVEL);
 
 /* SPI framing */
@@ -111,11 +113,6 @@ BUILD_ASSERT((HERO_CPI_MAX / HERO_CPI_STEP) - 1 <= UINT8_MAX,
 #define HERO_CPI_UNPACK_X(word)     ((word) & 0xFFFF)
 #define HERO_CPI_UNPACK_Y(word)     ((word) >> 16)
 BUILD_ASSERT(HERO_CPI_MAX <= UINT16_MAX, "packed per-axis CPI must fit 16 bits");
-
-/* Driver-internal axis bitmap */
-#define HERO_AXIS_FLAG_INVERT_X BIT(0)
-#define HERO_AXIS_FLAG_INVERT_Y BIT(1)
-#define HERO_AXIS_FLAG_SWAP_XY  BIT(2)
 
 struct hero_config {
     struct spi_dt_spec spi;
@@ -755,18 +752,7 @@ static void hero_emit_motion(const struct device *dev) {
     if (hero_read_motion(config, &delta_x, &delta_y) != 0 || (delta_x == 0 && delta_y == 0)) {
         return;
     }
-    const uint32_t axis_flags = data->axis_flags;
-    if (axis_flags & HERO_AXIS_FLAG_SWAP_XY) {
-        int16_t original_delta_x = delta_x;
-        delta_x = delta_y;
-        delta_y = original_delta_x;
-    }
-    if (axis_flags & HERO_AXIS_FLAG_INVERT_X) {
-        delta_x = (int16_t)-delta_x;
-    }
-    if (axis_flags & HERO_AXIS_FLAG_INVERT_Y) {
-        delta_y = (int16_t)-delta_y;
-    }
+    hero_apply_axis_transform(data->axis_flags, &delta_x, &delta_y);
     /* Absent relative axis reads as 0 downstream, so emit only moved ones.
      * Sync marks last reported event, rides whichever axis comes last. */
     const bool x_moved = delta_x != 0;
