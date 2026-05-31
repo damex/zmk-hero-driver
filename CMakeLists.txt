@@ -20,7 +20,6 @@ zephyr_library_compile_options(
 zephyr_include_directories(include)
 zephyr_include_directories(${APPLICATION_SOURCE_DIR}/include)
 zephyr_library_sources_ifdef(CONFIG_INPUT_HERO drivers/input/input_hero.c)
-zephyr_library_sources_ifdef(CONFIG_INPUT_HERO drivers/input/hero_axis.c)
 zephyr_library_sources_ifdef(CONFIG_INPUT_HERO drivers/input/hero_cpi.c)
 zephyr_library_sources_ifdef(CONFIG_INPUT_HERO drivers/input/hero_timing.c)
 if(CONFIG_INPUT_HERO AND CONFIG_SETTINGS)

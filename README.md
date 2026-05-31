@@ -47,9 +47,6 @@ missing it is a hard CMake error.
 | `run-to-rest-sec` | `6` | Inactivity seconds before rest mode. |
 | `x-input-code` | required | Input code for X. |
 | `y-input-code` | required | Input code for Y. |
-| `swap-xy` | off | Swap X/Y at report time. |
-| `invert-x` | off | Negate X at report time. |
-| `invert-y` | off | Negate Y at report time. |
 
 ### Frame rate
 
@@ -72,7 +69,6 @@ polls at `poll-rate-hz`.
 | Function | Effect |
 |---|---|
 | `hero_set_cpi` | per-axis CPI: X then Y (each 50-12000, step 50) |
-| `hero_set_axis` | invert-X, invert-Y, swap-X/Y flags |
 | `hero_set_report_rate` | poll rate in Hz (capped to 10 kHz) |
 | `hero_set_min_frame_rate` | frame-rate floor in Hz (capped to ~8333) |
 | `hero_set_rest_timeout` | inactivity seconds before rest mode |

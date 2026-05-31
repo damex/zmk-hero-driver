@@ -41,15 +41,6 @@ properties:
     type: int
     default: 6
     description: "Seconds of inactivity before the sensor enters low-power rest mode."
-  swap-xy:
-    type: boolean
-    description: "Swap X and Y axes at report time."
-  invert-x:
-    type: boolean
-    description: "Negate X axis at report time."
-  invert-y:
-    type: boolean
-    description: "Negate Y axis at report time."
   x-input-code:
     type: int
     required: true

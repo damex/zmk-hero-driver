@@ -31,7 +31,6 @@
 #include <zephyr/sys/byteorder.h>
 #include <zephyr/sys/util.h>
 
-#include "hero_axis.h"
 #include "hero_cpi.h"
 #include "hero_timing.h"
 
@@ -113,11 +112,6 @@ struct hero_config {
     uint16_t x_input_code;
     uint16_t y_input_code;
 
-    /* Axis transforms */
-    bool swap_xy;
-    bool invert_x;
-    bool invert_y;
-
     /* Poll thread */
     const struct device *poll_timer;
     k_thread_stack_t *thread_stack;
@@ -141,9 +135,6 @@ struct hero_data {
     uint32_t poll_interval_us;
     uint16_t x_input_code;
     uint16_t y_input_code;
-
-    /* Axis bitmap: aligned 32-bit store/load is hardware-atomic on ARM. */
-    uint32_t axis_flags;
 
     /* Timer-paced poll: counter top-value ISR gives, poll thread takes. */
     struct k_sem poll_sem;
@@ -597,14 +588,6 @@ static int hero_poll_timer_configure(const struct hero_config *config, struct he
 
 /* Non-SPI setters: the poll thread reads each value once per iteration. */
 
-/* Three bools packed into one uint32 so the poll thread reads the full set
- * atomically (no half-updated observation). */
-void hero_set_axis(const struct device *dev, bool invert_x, bool invert_y, bool swap_xy) {
-    __ASSERT_NO_MSG(dev != NULL);
-    struct hero_data *data = dev->data;
-    data->axis_flags = hero_axis_flags(invert_x, invert_y, swap_xy);
-}
-
 void hero_set_report_rate(const struct device *dev, uint32_t hz) {
     __ASSERT_NO_MSG(dev != NULL);
     if (hz == 0) {
@@ -679,7 +662,7 @@ void hero_unpark(const struct device *dev) {
     k_mutex_unlock(&data->park_mutex);
 }
 
-/* Read motion, apply axis transforms, report. No-op on read failure or no movement. */
+/* Read motion, report. No-op on read failure or no movement. */
 static void hero_emit_motion(const struct device *dev) {
     const struct hero_config *config = dev->config;
     struct hero_data *data = dev->data;
@@ -689,7 +672,6 @@ static void hero_emit_motion(const struct device *dev) {
     if (hero_read_motion(config, &delta_x, &delta_y) != 0 || (delta_x == 0 && delta_y == 0)) {
         return;
     }
-    hero_apply_axis_transform(data->axis_flags, &delta_x, &delta_y);
     /* Absent relative axis reads as 0 downstream, so emit only moved ones.
      * Sync marks last reported event, rides whichever axis comes last. */
     const bool x_moved = delta_x != 0;
@@ -812,7 +794,6 @@ static int hero_init(const struct device *dev) {
     k_condvar_init(&data->run_condvar);
     atomic_set(&data->park_requested, 0);
 
-    hero_set_axis(dev, config->invert_x, config->invert_y, config->swap_xy);
     data->poll_interval_us = hero_poll_rate_to_interval_us(config->poll_rate_hz);
     data->x_input_code = config->x_input_code;
     data->y_input_code = config->y_input_code;
@@ -871,9 +852,6 @@ static int __maybe_unused hero_pm_action(const struct device *dev,
         .run_to_rest_sec = DT_INST_PROP(instance, run_to_rest_sec),                                 \
         .x_input_code = DT_INST_PROP(instance, x_input_code),                                       \
         .y_input_code = DT_INST_PROP(instance, y_input_code),                                       \
-        .swap_xy = DT_INST_PROP(instance, swap_xy),                                                 \
-        .invert_x = DT_INST_PROP(instance, invert_x),                                               \
-        .invert_y = DT_INST_PROP(instance, invert_y),                                               \
         .poll_timer = DEVICE_DT_GET(DT_INST_PHANDLE(instance, poll_timer)),                          \
         .thread_stack = hero_thread_stack_##instance,                                               \
         .thread_stack_size = K_THREAD_STACK_SIZEOF(hero_thread_stack_##instance),                   \
