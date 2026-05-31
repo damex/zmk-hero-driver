@@ -113,6 +113,17 @@ When `CONFIG_PM_DEVICE=y`, the driver also implements Zephyr device PM:
 `PM_DEVICE_ACTION_SUSPEND` calls `hero_park`, `PM_DEVICE_ACTION_RESUME` calls
 `hero_unpark`. No effect otherwise.
 
+## Load order
+
+Each step overrides the previous:
+
+1. **Boot defaults:** the DT props program the sensor at startup.
+2. **Saved values:** any persisted in NVS apply on top (needs `CONFIG_SETTINGS`).
+3. **Live changes:** pushed at runtime via `settings_runtime_set`, no reflash.
+
+Runtime-overridable keys: `hero/rate`, `hero/min_frame_rate`, `hero/x_code`,
+`hero/y_code`, `hero/rest_timeout`.
+
 ## License
 
 This module is MIT.
