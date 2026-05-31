@@ -48,6 +48,38 @@ missing it is a hard CMake error.
 | `x-input-code` | required | Input code for X. |
 | `y-input-code` | required | Input code for Y. |
 
+### Axis orientation
+
+Driver emits raw sensor axes. Fix mounting (invert X/Y, swap X/Y) with ZMK
+[input-processor-transform](https://zmk.dev/docs/keymaps/input-processors/transformer),
+attached where sensor events are consumed. Combine flags with `|`:
+`INPUT_TRANSFORM_X_INVERT`, `INPUT_TRANSFORM_Y_INVERT`, `INPUT_TRANSFORM_XY_SWAP`.
+
+Both forms need includes:
+
+```dts
+#include <dt-bindings/zmk/input_transform.h>
+#include <input/processors.dtsi>
+```
+
+Standalone board, on the input listener:
+
+```dts
+hero_listener {
+    compatible = "zmk,input-listener";
+    device = <&hero>;
+    input-processors = <&zip_xy_transform (INPUT_TRANSFORM_Y_INVERT | INPUT_TRANSFORM_XY_SWAP)>;
+};
+```
+
+Split, on the peripheral's `zmk,input-split` node (transforms before forwarding):
+
+```dts
+&your_input_split {
+    input-processors = <&zip_xy_transform INPUT_TRANSFORM_Y_INVERT>;
+};
+```
+
 ### Frame rate
 
 `min-frame-rate-hz` is the floor. Sensor auto-scales up to ~12000 Hz under
