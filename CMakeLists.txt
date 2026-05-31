@@ -23,6 +23,9 @@ zephyr_library_sources_ifdef(CONFIG_INPUT_HERO drivers/input/input_hero.c)
 zephyr_library_sources_ifdef(CONFIG_INPUT_HERO drivers/input/hero_axis.c)
 zephyr_library_sources_ifdef(CONFIG_INPUT_HERO drivers/input/hero_cpi.c)
 zephyr_library_sources_ifdef(CONFIG_INPUT_HERO drivers/input/hero_timing.c)
+if(CONFIG_INPUT_HERO AND CONFIG_SETTINGS)
+  zephyr_library_sources(drivers/input/hero_config.c)
+endif()
 
 # HERO sensor blob is Logitech proprietary firmware (gitignored sensor.bin, see README).
 # -Wa,-I lets the assembler find the blob; OBJECT_DEPENDS re-runs on change.
