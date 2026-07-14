@@ -463,6 +463,10 @@ static int hero_calibrate_page(const struct hero_config *config, uint8_t page) {
 }
 
 static int hero_power_on(const struct hero_config *config) {
+    if (SENSOR_BLOB_SIZE == 0 || SENSOR_BLOB_SIZE % 2 != 0) {
+        LOG_ERR("sensor blob size %u invalid", (unsigned)SENSOR_BLOB_SIZE);
+        return -EINVAL;
+    }
     int error = hero_write(config, HERO_REGISTER_POWER_UP, HERO_POWER_UP_RESET);
     if (error < 0) {
         return error;
