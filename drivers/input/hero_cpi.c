@@ -7,7 +7,6 @@
 
 BUILD_ASSERT((HERO_CPI_MAX / HERO_CPI_STEP) - 1 <= UINT8_MAX,
              "CPI max overflows the DPI register width");
-BUILD_ASSERT(HERO_CPI_MAX <= UINT16_MAX, "packed per-axis CPI must fit 16 bits");
 
 bool hero_cpi_in_range(uint32_t cpi) {
     return cpi >= HERO_CPI_MIN && cpi <= HERO_CPI_MAX;

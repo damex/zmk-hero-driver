@@ -122,7 +122,8 @@ struct hero_data {
     struct k_thread thread;
 
     /* Deferred config: setter stores value + arms atomic; poll thread CAS-claims and applies. */
-    uint32_t pending_cpi;
+    uint32_t pending_cpi_x;
+    uint32_t pending_cpi_y;
     atomic_t cpi_pending;
     uint8_t pending_frame_period;
     atomic_t frame_period_pending;
@@ -638,7 +639,30 @@ void hero_set_cpi(const struct device *dev, uint32_t cpi_x, uint32_t cpi_y) {
         return;
     }
     struct hero_data *data = dev->data;
-    data->pending_cpi = HERO_CPI_PACK(cpi_x, cpi_y);
+    data->pending_cpi_x = cpi_x;
+    data->pending_cpi_y = cpi_y;
+    atomic_set(&data->cpi_pending, 1);
+}
+
+void hero_set_cpi_x(const struct device *dev, uint32_t cpi) {
+    __ASSERT_NO_MSG(dev != NULL);
+    if (!hero_cpi_in_range(cpi)) {
+        LOG_WRN("cpi x=%u out of range [%u, %u]", cpi, HERO_CPI_MIN, HERO_CPI_MAX);
+        return;
+    }
+    struct hero_data *data = dev->data;
+    data->pending_cpi_x = cpi;
+    atomic_set(&data->cpi_pending, 1);
+}
+
+void hero_set_cpi_y(const struct device *dev, uint32_t cpi) {
+    __ASSERT_NO_MSG(dev != NULL);
+    if (!hero_cpi_in_range(cpi)) {
+        LOG_WRN("cpi y=%u out of range [%u, %u]", cpi, HERO_CPI_MIN, HERO_CPI_MAX);
+        return;
+    }
+    struct hero_data *data = dev->data;
+    data->pending_cpi_y = cpi;
     atomic_set(&data->cpi_pending, 1);
 }
 
@@ -728,8 +752,7 @@ static bool hero_service_park(const struct hero_config *config, struct hero_data
  * Re-arm on failure so transient SPI error retries next poll, not drops. */
 static void hero_apply_pending(const struct hero_config *config, struct hero_data *data) {
     if (atomic_cas(&data->cpi_pending, 1, 0) &&
-        hero_set_cpi_registers(config, HERO_CPI_UNPACK_X(data->pending_cpi),
-                               HERO_CPI_UNPACK_Y(data->pending_cpi)) < 0) {
+        hero_set_cpi_registers(config, data->pending_cpi_x, data->pending_cpi_y) < 0) {
         LOG_DBG("cpi write failed");
         atomic_set(&data->cpi_pending, 1);
     }
@@ -766,7 +789,7 @@ static void hero_thread(void *device_handle, void *unused_param_1, void *unused_
         return;
     }
     LOG_INF("HERO ready, polling every %u us, cpi x=%u y=%u", data->poll_interval_us,
-            HERO_CPI_UNPACK_X(data->pending_cpi), HERO_CPI_UNPACK_Y(data->pending_cpi));
+            data->pending_cpi_x, data->pending_cpi_y);
 
     /* Drop ticks banked during configure so first poll waits for fresh tick. */
     k_sem_reset(&data->poll_sem);
@@ -798,7 +821,8 @@ static int hero_init(const struct device *dev) {
     data->x_input_code = config->x_input_code;
     data->y_input_code = config->y_input_code;
     /* Seed the cache; hero_enter_run does the chip writes. */
-    data->pending_cpi = HERO_CPI_PACK(config->cpi_x, config->cpi_y);
+    data->pending_cpi_x = config->cpi_x;
+    data->pending_cpi_y = config->cpi_y;
     data->pending_frame_period = hero_min_frame_rate_to_period(config->min_frame_rate_hz);
     data->pending_rest_period = hero_rest_seconds_to_register(config->run_to_rest_sec);
 

@@ -101,6 +101,8 @@ polls at `poll-rate-hz`.
 | Function | Effect |
 |---|---|
 | `hero_set_cpi` | per-axis CPI: X then Y (each 50-12000, step 50) |
+| `hero_set_cpi_x` | X-axis CPI alone |
+| `hero_set_cpi_y` | Y-axis CPI alone |
 | `hero_set_report_rate` | poll rate in Hz (capped to 10 kHz) |
 | `hero_set_min_frame_rate` | frame-rate floor in Hz (capped to ~8333) |
 | `hero_set_rest_timeout` | inactivity seconds before rest mode |
@@ -121,8 +123,9 @@ Each step overrides the previous:
 2. **Saved values:** any persisted in NVS apply on top (needs `CONFIG_SETTINGS`).
 3. **Live changes:** pushed at runtime via `settings_runtime_set`, no reflash.
 
-Runtime-overridable keys: `hero/rate`, `hero/min_frame_rate`, `hero/x_code`,
-`hero/y_code`, `hero/rest_timeout`.
+Runtime-overridable keys: `hero/cpi_x`, `hero/cpi_y`, `hero/rate`,
+`hero/min_frame_rate`, `hero/x_code`, `hero/y_code`, `hero/rest_timeout`.
+Each value is a uint32.
 
 ## License
 

@@ -3,7 +3,7 @@
 
 /*
  * Applies "hero/" settings to the sensor: settings_load at boot, settings_runtime_set
- * live. Value is a uint32, cast/unpack per key.
+ * live. Value is a uint32, cast per key.
  */
 #include <errno.h>
 #include <stdint.h>
@@ -24,6 +24,14 @@ static int hero_config_set(const char *name, size_t len, settings_read_cb read_c
     }
     if (read_cb(cb_arg, &value, sizeof(value)) < 0) {
         return -EIO;
+    }
+    if (settings_name_steq(name, "cpi_x", &next) && next == NULL) {
+        hero_set_cpi_x(hero_device, value);
+        return 0;
+    }
+    if (settings_name_steq(name, "cpi_y", &next) && next == NULL) {
+        hero_set_cpi_y(hero_device, value);
+        return 0;
     }
     if (settings_name_steq(name, "rate", &next) && next == NULL) {
         hero_set_report_rate(hero_device, value);

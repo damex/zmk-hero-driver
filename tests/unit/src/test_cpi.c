@@ -1,8 +1,6 @@
 // Copyright 2026 Roman Kuzmitskii (@damex)
 // SPDX-License-Identifier: MIT
 
-#include <stdint.h>
-
 #include <zephyr/ztest.h>
 
 #include "hero_cpi.h"
@@ -33,14 +31,4 @@ ZTEST(hero_cpi, test_cpi_to_register) {
     zassert_equal(hero_cpi_to_register(1800), 35, NULL);
     zassert_equal(hero_cpi_to_register(2100), 41, NULL);
     zassert_equal(hero_cpi_to_register(12000), 239, NULL);
-}
-
-ZTEST(hero_cpi, test_cpi_pack_roundtrip) {
-    const uint32_t packed = HERO_CPI_PACK(1800, 2100);
-    zassert_equal(HERO_CPI_UNPACK_X(packed), 1800, "x in low half");
-    zassert_equal(HERO_CPI_UNPACK_Y(packed), 2100, "y in high half");
-
-    const uint32_t max_pair = HERO_CPI_PACK(HERO_CPI_MAX, HERO_CPI_MAX);
-    zassert_equal(HERO_CPI_UNPACK_X(max_pair), HERO_CPI_MAX, NULL);
-    zassert_equal(HERO_CPI_UNPACK_Y(max_pair), HERO_CPI_MAX, NULL);
 }
