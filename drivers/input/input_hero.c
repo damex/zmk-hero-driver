@@ -786,6 +786,9 @@ static void hero_thread(void *device_handle, void *unused_param_1, void *unused_
 
     if (hero_configure(dev) != 0) {
         LOG_ERR("HERO configure failed");
+        if (counter_stop(config->poll_timer) < 0) {
+            LOG_DBG("poll timer stop failed");
+        }
         return;
     }
     LOG_INF("HERO ready, polling every %u us, cpi x=%u y=%u", data->poll_interval_us,
