@@ -16,6 +16,8 @@ ZTEST(hero_timing, test_min_frame_rate_to_period) {
     zassert_equal(hero_min_frame_rate_to_period(100), UINT8_MAX, "low rate clamps to register max");
     zassert_equal(hero_min_frame_rate_to_period(10000), HERO_FRAME_PERIOD_MIN,
                   "high rate clamps to the 120 us floor");
+    zassert_equal(hero_min_frame_rate_to_period(UINT32_MAX), HERO_FRAME_PERIOD_MIN,
+                  "wrap-range rate clamps to the floor");
 }
 
 ZTEST(hero_timing, test_poll_rate_to_interval_us) {
@@ -34,4 +36,6 @@ ZTEST(hero_timing, test_rest_seconds_to_register) {
     zassert_equal(hero_rest_seconds_to_register(2), 2, "2 s -> 2");
     zassert_equal(hero_rest_seconds_to_register(5), 8, "5 s -> 8");
     zassert_equal(hero_rest_seconds_to_register(200), UINT8_MAX, "large value clamps");
+    zassert_equal(hero_rest_seconds_to_register(UINT32_MAX), UINT8_MAX,
+                  "wrap-range seconds clamp to register max");
 }

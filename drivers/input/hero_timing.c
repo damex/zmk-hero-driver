@@ -11,7 +11,8 @@ uint8_t hero_min_frame_rate_to_period(uint32_t hz) {
     if (hz == 0) {
         return UINT8_MAX;
     }
-    const uint32_t value = USEC_PER_SEC / (HERO_FRAME_PERIOD_STEP_US * hz);
+    /* Divided stepwise: HERO_FRAME_PERIOD_STEP_US * hz can wrap uint32. */
+    const uint32_t value = USEC_PER_SEC / HERO_FRAME_PERIOD_STEP_US / hz;
     return (uint8_t)CLAMP(value, HERO_FRAME_PERIOD_MIN, UINT8_MAX);
 }
 
@@ -27,6 +28,8 @@ uint8_t hero_rest_seconds_to_register(uint32_t seconds) {
     if (seconds <= HERO_REST_MIN_SEC) {
         return 0;
     }
-    return (uint8_t)MIN((seconds - HERO_REST_MIN_SEC) * HERO_REST_STEP_PER_SEC,
-                        (uint32_t)UINT8_MAX);
+    if (seconds > HERO_REST_MIN_SEC + UINT8_MAX / HERO_REST_STEP_PER_SEC) {
+        return UINT8_MAX;
+    }
+    return (uint8_t)((seconds - HERO_REST_MIN_SEC) * HERO_REST_STEP_PER_SEC);
 }
