@@ -18,7 +18,7 @@ Add it to your `config/west.yml`:
   projects:
     - name: zmk-hero-driver
       remote: damex
-      revision: v0.1.0
+      revision: v0.2.2
 ```
 Then:
 ```
