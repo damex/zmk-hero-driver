@@ -8,7 +8,6 @@
 
 #include <zephyr/device.h>
 
-void hero_set_cpi(const struct device *dev, uint32_t cpi_x, uint32_t cpi_y);
 void hero_set_cpi_x(const struct device *dev, uint32_t cpi);
 void hero_set_cpi_y(const struct device *dev, uint32_t cpi);
 void hero_set_report_rate(const struct device *dev, uint32_t hz);

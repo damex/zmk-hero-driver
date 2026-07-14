@@ -632,18 +632,6 @@ void hero_set_rest_timeout(const struct device *dev, uint32_t seconds) {
     atomic_set(&data->rest_period_pending, 1);
 }
 
-void hero_set_cpi(const struct device *dev, uint32_t cpi_x, uint32_t cpi_y) {
-    __ASSERT_NO_MSG(dev != NULL);
-    if (!hero_cpi_pair_in_range(cpi_x, cpi_y)) {
-        LOG_WRN("cpi x=%u y=%u out of range [%u, %u]", cpi_x, cpi_y, HERO_CPI_MIN, HERO_CPI_MAX);
-        return;
-    }
-    struct hero_data *data = dev->data;
-    data->pending_cpi_x = cpi_x;
-    data->pending_cpi_y = cpi_y;
-    atomic_set(&data->cpi_pending, 1);
-}
-
 void hero_set_cpi_x(const struct device *dev, uint32_t cpi) {
     __ASSERT_NO_MSG(dev != NULL);
     if (!hero_cpi_in_range(cpi)) {

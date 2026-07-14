@@ -100,9 +100,8 @@ polls at `poll-rate-hz`.
 
 | Function | Effect |
 |---|---|
-| `hero_set_cpi` | per-axis CPI: X then Y (each 50-12000, step 50) |
-| `hero_set_cpi_x` | X-axis CPI alone |
-| `hero_set_cpi_y` | Y-axis CPI alone |
+| `hero_set_cpi_x` | X-axis CPI (50-12000, step 50) |
+| `hero_set_cpi_y` | Y-axis CPI (50-12000, step 50) |
 | `hero_set_report_rate` | poll rate in Hz (capped to 10 kHz) |
 | `hero_set_min_frame_rate` | frame-rate floor in Hz (capped to ~8333) |
 | `hero_set_rest_timeout` | inactivity seconds before rest mode |
