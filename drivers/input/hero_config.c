@@ -10,9 +10,12 @@
 
 #include <zephyr/device.h>
 #include <zephyr/init.h>
+#include <zephyr/logging/log.h>
 #include <zephyr/settings/settings.h>
 
 #include <zmk/input/hero.h>
+
+LOG_MODULE_DECLARE(input_hero, CONFIG_INPUT_HERO_LOG_LEVEL);
 
 static const struct device *const hero_device = DEVICE_DT_GET_ONE(logitech_hero);
 
@@ -60,8 +63,15 @@ SETTINGS_STATIC_HANDLER_DEFINE(hero_config, "hero", NULL, hero_config_set, NULL,
 
 /* Runs after the hero device init (POST_KERNEL), so a restored value applies live. */
 static int hero_config_init(void) {
-    settings_subsys_init();
-    settings_load_subtree("hero");
-    return 0;
+    int error = settings_subsys_init();
+    if (error < 0) {
+        LOG_ERR("settings init failed (%d)", error);
+        return error;
+    }
+    error = settings_load_subtree("hero");
+    if (error < 0) {
+        LOG_ERR("hero settings load failed (%d)", error);
+    }
+    return error;
 }
 SYS_INIT(hero_config_init, APPLICATION, CONFIG_APPLICATION_INIT_PRIORITY);
